@@ -206,7 +206,7 @@ projects = [
         "icon": "✅",
         "name": "Corrector Co Natura",
         "tag": "Auditoría",
-        "desc": "Validación automática del Certificado de Origen para la cuenta Natura. Detecta inconsistencias y genera reporte de correctos.",
+        "desc": "Validación automática del Certificado de Origen para la cuenta Natura. Detecta inconsistencias y genera reporte de correctores.",
         "url": "https://corrector-co-natura.streamlit.app/"
     },
     {
@@ -235,7 +235,7 @@ for i, p in enumerate(projects):
             <span class="card-icon">{p['icon']}</span>
             <div class="card-name">{p['name']}</div>
             <div class="card-desc">{p['desc']}</div>
-            <div class="card-cta">Ingresar →</div>
+            
         </div>
         """, unsafe_allow_html=True)
         st.link_button("Abrir herramienta", p['url'], use_container_width=True)
