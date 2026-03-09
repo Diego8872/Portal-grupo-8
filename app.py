@@ -8,17 +8,14 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
 
 html, body, [class*="css"] {
     font-family: 'DM Sans', sans-serif;
 }
 
 .stApp {
-    background: #0d2b33;
-    background-image: 
-        radial-gradient(ellipse at 20% 20%, rgba(42,122,138,0.15) 0%, transparent 60%),
-        radial-gradient(ellipse at 80% 80%, rgba(30,95,107,0.12) 0%, transparent 60%);
+    background: #0d2b33 !important;
 }
 
 .block-container {
@@ -51,9 +48,7 @@ html, body, [class*="css"] {
     line-height: 1;
 }
 
-.portal-title span {
-    color: #3a9aaa;
-}
+.portal-title span { color: #3a9aaa; }
 
 .portal-subtitle {
     font-size: 0.75rem;
@@ -83,39 +78,21 @@ html, body, [class*="css"] {
     padding-left: 10px;
 }
 
-.bento-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    margin-bottom: 16px;
-}
-
-.bento-card {
+.card-wrapper {
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(58,154,170,0.2);
     border-radius: 20px;
     padding: 28px 26px;
+    margin-bottom: 4px;
     position: relative;
-    overflow: hidden;
     transition: all 0.3s ease;
-    text-decoration: none;
-    display: block;
-    cursor: pointer;
 }
 
-.bento-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(58,154,170,0.5), transparent);
-}
-
-.bento-card:hover {
+.card-wrapper:hover {
     background: rgba(58,154,170,0.1);
     border-color: rgba(58,154,170,0.5);
-    transform: translateY(-4px);
-    box-shadow: 0 20px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(58,154,170,0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.3);
 }
 
 .card-tag {
@@ -129,12 +106,12 @@ html, body, [class*="css"] {
     border: 1px solid rgba(58,154,170,0.35);
     padding: 3px 10px;
     border-radius: 20px;
-    margin-bottom: 18px;
+    margin-bottom: 14px;
 }
 
 .card-icon {
     font-size: 1.8rem;
-    margin-bottom: 14px;
+    margin-bottom: 10px;
     display: block;
 }
 
@@ -143,7 +120,6 @@ html, body, [class*="css"] {
     font-size: 1.05rem;
     font-weight: 600;
     color: #ffffff;
-    letter-spacing: 0.01em;
     margin-bottom: 8px;
     line-height: 1.3;
 }
@@ -153,13 +129,10 @@ html, body, [class*="css"] {
     color: rgba(255,255,255,0.45);
     font-weight: 300;
     line-height: 1.6;
-    margin-bottom: 22px;
+    margin-bottom: 18px;
 }
 
 .card-cta {
-    display: flex;
-    align-items: center;
-    gap: 6px;
     font-family: 'Outfit', sans-serif;
     font-size: 0.72rem;
     font-weight: 500;
@@ -168,24 +141,17 @@ html, body, [class*="css"] {
     color: #3a9aaa;
 }
 
-.bento-card:hover .card-cta {
-    gap: 10px;
-}
-
 .coming-soon {
     background: rgba(255,255,255,0.02);
     border: 1.5px dashed rgba(58,154,170,0.15);
     border-radius: 20px;
-    padding: 28px 26px;
+    padding: 28px;
     text-align: center;
     color: rgba(255,255,255,0.15);
     font-size: 0.78rem;
     letter-spacing: 0.12em;
     font-style: italic;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 80px;
+    margin-top: 4px;
 }
 
 .portal-footer {
@@ -203,9 +169,28 @@ html, body, [class*="css"] {
     background: linear-gradient(90deg, transparent, rgba(58,154,170,0.2), transparent);
     margin-bottom: 20px;
 }
+
+/* Botones de Streamlit */
+.stLinkButton a {
+    background: transparent !important;
+    border: 1px solid rgba(58,154,170,0.4) !important;
+    color: #3a9aaa !important;
+    border-radius: 8px !important;
+    font-family: 'Outfit', sans-serif !important;
+    font-size: 0.72rem !important;
+    letter-spacing: 0.1em !important;
+    text-transform: uppercase !important;
+    padding: 6px 16px !important;
+}
+
+.stLinkButton a:hover {
+    background: rgba(58,154,170,0.15) !important;
+    border-color: #3a9aaa !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
+# HEADER
 st.markdown("""
 <div class="portal-header">
     <div class="portal-eyebrow">Interlog Comercio Exterior</div>
@@ -217,40 +202,54 @@ st.markdown("""
 
 st.markdown('<div class="section-label">Herramientas disponibles</div>', unsafe_allow_html=True)
 
+# PROYECTOS
+projects = [
+    {
+        "icon": "✅",
+        "name": "Correctos Co Natura",
+        "tag": "Auditoría",
+        "desc": "Validación automática de documentos de importación para la cuenta Co Natura. Detecta inconsistencias y genera reporte de correctos.",
+        "url": "https://corrector-co-natura.streamlit.app/"
+    },
+    {
+        "icon": "📋",
+        "name": "Correctos Descripciones Finning",
+        "tag": "Auditoría",
+        "desc": "Control y corrección de descripciones de mercadería para despachos Finning. Verifica cumplimiento normativo y uniformidad de datos.",
+        "url": "https://corrector-descripciones.streamlit.app/"
+    },
+    {
+        "icon": "📊",
+        "name": "KPI Finning",
+        "tag": "Reportes",
+        "desc": "Dashboard de indicadores clave de desempeño operativo para la cuenta Finning. Visualización de métricas y seguimiento de gestión.",
+        "url": "https://interlog-kpi-finning.streamlit.app/"
+    },
+]
+
+cols = st.columns(3)
+
+for i, p in enumerate(projects):
+    with cols[i]:
+        st.markdown(f"""
+        <div class="card-wrapper">
+            <div class="card-tag">{p['tag']}</div>
+            <span class="card-icon">{p['icon']}</span>
+            <div class="card-name">{p['name']}</div>
+            <div class="card-desc">{p['desc']}</div>
+            <div class="card-cta">Ingresar →</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.link_button("Abrir herramienta", p['url'], use_container_width=True)
+
+# COMING SOON
 st.markdown("""
-<div class="bento-grid">
-
-    <a class="bento-card" href="https://corrector-co-natura.streamlit.app/" target="_blank">
-        <div class="card-tag">Auditoría</div>
-        <span class="card-icon">✅</span>
-        <div class="card-name">Correctos Co Natura</div>
-        <div class="card-desc">Validación automática de documentos de importación para la cuenta Co Natura. Detecta inconsistencias y genera reporte de correctos.</div>
-        <div class="card-cta">Ingresar →</div>
-    </a>
-
-    <a class="bento-card" href="https://corrector-descripciones.streamlit.app/" target="_blank">
-        <div class="card-tag">Auditoría</div>
-        <span class="card-icon">📋</span>
-        <div class="card-name">Correctos Descripciones Finning</div>
-        <div class="card-desc">Control y corrección de descripciones de mercadería para despachos Finning. Verifica cumplimiento normativo y uniformidad de datos.</div>
-        <div class="card-cta">Ingresar →</div>
-    </a>
-
-    <a class="bento-card" href="https://interlog-kpi-finning.streamlit.app/" target="_blank">
-        <div class="card-tag">Reportes</div>
-        <span class="card-icon">📊</span>
-        <div class="card-name">KPI Finning</div>
-        <div class="card-desc">Dashboard de indicadores clave de desempeño operativo para la cuenta Finning. Visualización de métricas y seguimiento de gestión.</div>
-        <div class="card-cta">Ingresar →</div>
-    </a>
-
-</div>
-
 <div class="coming-soon">
     Nuevas herramientas próximamente...
 </div>
 """, unsafe_allow_html=True)
 
+# FOOTER
 st.markdown("""
 <div class="portal-footer">
     <div class="footer-line"></div>
