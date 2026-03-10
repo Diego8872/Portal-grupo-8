@@ -5,3 +5,4 @@ groq
 pdfplumber
 plotly
 numpy
+python-pptx
