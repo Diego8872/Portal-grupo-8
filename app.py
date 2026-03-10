@@ -10,30 +10,17 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
 
-/* Fondo general solo suave, sin tocar widgets internos */
+html, body, [class*="css"] {
+    font-family: 'DM Sans', sans-serif;
+}
+
 .stApp {
     background: linear-gradient(160deg, #0f3d4a 0%, #123d4a 40%, #0d3240 100%) !important;
 }
 
-/* Oculto navegación automática solo en la home */
-section[data-testid="stSidebar"] {display: none;}
-header[data-testid="stHeader"] {display: none;}
-
-/* Scope visual del portal */
-.portal-home * {
-    font-family: 'DM Sans', sans-serif;
-}
-
-.portal-home .block-title,
-.portal-home .portal-title,
-.portal-home .section-label,
-.portal-home .card-tag,
-.portal-home .card-name {
-    font-family: 'Outfit', sans-serif;
-}
-
-.portal-home {
-    padding-top: 0.5rem;
+.block-container {
+    padding: 3rem 4rem 4rem 4rem;
+    max-width: 1200px;
 }
 
 .portal-header {
@@ -42,6 +29,7 @@ header[data-testid="stHeader"] {display: none;}
 }
 
 .portal-eyebrow {
+    font-family: 'Outfit', sans-serif;
     font-size: 0.65rem;
     font-weight: 500;
     letter-spacing: 0.3em;
@@ -51,6 +39,7 @@ header[data-testid="stHeader"] {display: none;}
 }
 
 .portal-title {
+    font-family: 'Outfit', sans-serif;
     font-size: 3rem;
     font-weight: 800;
     color: #ffffff;
@@ -78,6 +67,7 @@ header[data-testid="stHeader"] {display: none;}
 }
 
 .section-label {
+    font-family: 'Outfit', sans-serif;
     font-size: 0.62rem;
     font-weight: 600;
     letter-spacing: 0.25em;
@@ -97,7 +87,6 @@ header[data-testid="stHeader"] {display: none;}
     position: relative;
     transition: all 0.3s ease;
     box-shadow: 0 4px 24px rgba(0,0,0,0.2);
-    min-height: 230px;
 }
 
 .card-wrapper:hover {
@@ -109,6 +98,7 @@ header[data-testid="stHeader"] {display: none;}
 
 .card-tag {
     display: inline-block;
+    font-family: 'Outfit', sans-serif;
     font-size: 0.58rem;
     font-weight: 600;
     letter-spacing: 0.18em;
@@ -127,6 +117,7 @@ header[data-testid="stHeader"] {display: none;}
 }
 
 .card-name {
+    font-family: 'Outfit', sans-serif;
     font-size: 1.05rem;
     font-weight: 600;
     color: #ffffff;
@@ -140,6 +131,15 @@ header[data-testid="stHeader"] {display: none;}
     font-weight: 300;
     line-height: 1.65;
     margin-bottom: 18px;
+}
+
+.card-cta {
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #5bbfcf;
 }
 
 .coming-soon {
@@ -171,8 +171,7 @@ header[data-testid="stHeader"] {display: none;}
     margin-bottom: 20px;
 }
 
-/* Solo botones del portal */
-div[data-testid="column"] .stButton > button {
+.stLinkButton a {
     background: transparent !important;
     border: 1px solid rgba(91,191,207,0.45) !important;
     color: #5bbfcf !important;
@@ -183,14 +182,12 @@ div[data-testid="column"] .stButton > button {
     text-transform: uppercase !important;
 }
 
-div[data-testid="column"] .stButton > button:hover {
+.stLinkButton a:hover {
     background: rgba(91,191,207,0.15) !important;
     border-color: #5bbfcf !important;
 }
 </style>
 """, unsafe_allow_html=True)
-
-st.markdown('<div class="portal-home">', unsafe_allow_html=True)
 
 st.markdown("""
 <div class="portal-header">
@@ -209,22 +206,21 @@ projects = [
         "name": "Corrector Co Natura",
         "tag": "Auditoría",
         "desc": "Validación automática del Certificado de Origen para la cuenta Natura. Detecta inconsistencias y genera reporte de correctores.",
-        "internal": False
+        "url": "https://corrector-co-natura.streamlit.app/"
     },
     {
         "icon": "📋",
         "name": "Corrector Descripciones Finning",
         "tag": "Auditoría",
         "desc": "Control y corrección de descripciones de mercadería para la cuenta Finning. Verifica y normaliza la uniformidad de datos.",
-        "internal": True,
-        "page": "pages/1_Corrector_Descripciones.py"
+        "url": "https://corrector-descripciones.streamlit.app/"
     },
     {
         "icon": "📊",
         "name": "KPI Finning",
         "tag": "Reportes",
         "desc": "Dashboard de indicadores clave de desempeño operativo para la cuenta Finning. Visualización de métricas y seguimiento de gestión.",
-        "internal": False
+        "url": "https://interlog-kpi-finning.streamlit.app/"
     },
 ]
 
@@ -240,12 +236,7 @@ for i, p in enumerate(projects):
             <div class="card-desc">{p['desc']}</div>
         </div>
         """, unsafe_allow_html=True)
-
-        if p.get("internal"):
-            if st.button("Abrir herramienta", key=f"btn_{i}", use_container_width=True):
-                st.switch_page(p["page"])
-        else:
-            st.button("Próximamente integrada", key=f"btn_{i}", use_container_width=True, disabled=True)
+        st.link_button("Abrir herramienta", p['url'], use_container_width=True)
 
 st.markdown("""
 <div class="coming-soon">
@@ -259,5 +250,3 @@ st.markdown("""
     Grupo 8 · Interlog Comercio Exterior · 2025
 </div>
 """, unsafe_allow_html=True)
-
-st.markdown('</div>', unsafe_allow_html=True)
