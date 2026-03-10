@@ -10,17 +10,30 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
 
-html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif;
-}
-
+/* Fondo general solo suave, sin tocar widgets internos */
 .stApp {
     background: linear-gradient(160deg, #0f3d4a 0%, #123d4a 40%, #0d3240 100%) !important;
 }
 
-.block-container {
-    padding: 3rem 4rem 4rem 4rem;
-    max-width: 1200px;
+/* Oculto navegación automática solo en la home */
+section[data-testid="stSidebar"] {display: none;}
+header[data-testid="stHeader"] {display: none;}
+
+/* Scope visual del portal */
+.portal-home * {
+    font-family: 'DM Sans', sans-serif;
+}
+
+.portal-home .block-title,
+.portal-home .portal-title,
+.portal-home .section-label,
+.portal-home .card-tag,
+.portal-home .card-name {
+    font-family: 'Outfit', sans-serif;
+}
+
+.portal-home {
+    padding-top: 0.5rem;
 }
 
 .portal-header {
@@ -29,7 +42,6 @@ html, body, [class*="css"] {
 }
 
 .portal-eyebrow {
-    font-family: 'Outfit', sans-serif;
     font-size: 0.65rem;
     font-weight: 500;
     letter-spacing: 0.3em;
@@ -39,7 +51,6 @@ html, body, [class*="css"] {
 }
 
 .portal-title {
-    font-family: 'Outfit', sans-serif;
     font-size: 3rem;
     font-weight: 800;
     color: #ffffff;
@@ -67,7 +78,6 @@ html, body, [class*="css"] {
 }
 
 .section-label {
-    font-family: 'Outfit', sans-serif;
     font-size: 0.62rem;
     font-weight: 600;
     letter-spacing: 0.25em;
@@ -87,6 +97,7 @@ html, body, [class*="css"] {
     position: relative;
     transition: all 0.3s ease;
     box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+    min-height: 230px;
 }
 
 .card-wrapper:hover {
@@ -98,7 +109,6 @@ html, body, [class*="css"] {
 
 .card-tag {
     display: inline-block;
-    font-family: 'Outfit', sans-serif;
     font-size: 0.58rem;
     font-weight: 600;
     letter-spacing: 0.18em;
@@ -117,7 +127,6 @@ html, body, [class*="css"] {
 }
 
 .card-name {
-    font-family: 'Outfit', sans-serif;
     font-size: 1.05rem;
     font-weight: 600;
     color: #ffffff;
@@ -162,7 +171,8 @@ html, body, [class*="css"] {
     margin-bottom: 20px;
 }
 
-.stButton > button {
+/* Solo botones del portal */
+div[data-testid="column"] .stButton > button {
     background: transparent !important;
     border: 1px solid rgba(91,191,207,0.45) !important;
     color: #5bbfcf !important;
@@ -173,12 +183,14 @@ html, body, [class*="css"] {
     text-transform: uppercase !important;
 }
 
-.stButton > button:hover {
+div[data-testid="column"] .stButton > button:hover {
     background: rgba(91,191,207,0.15) !important;
     border-color: #5bbfcf !important;
 }
 </style>
 """, unsafe_allow_html=True)
+
+st.markdown('<div class="portal-home">', unsafe_allow_html=True)
 
 st.markdown("""
 <div class="portal-header">
@@ -247,3 +259,5 @@ st.markdown("""
     Grupo 8 · Interlog Comercio Exterior · 2025
 </div>
 """, unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
