@@ -186,6 +186,22 @@ html, body, [class*="css"] {
     background: rgba(91,191,207,0.15) !important;
     border-color: #5bbfcf !important;
 }
+
+.stButton > button {
+    background: transparent !important;
+    border: 1px solid rgba(91,191,207,0.45) !important;
+    color: #5bbfcf !important;
+    border-radius: 10px !important;
+    font-family: 'Outfit', sans-serif !important;
+    font-size: 0.72rem !important;
+    letter-spacing: 0.1em !important;
+    text-transform: uppercase !important;
+}
+
+.stButton > button:hover {
+    background: rgba(91,191,207,0.15) !important;
+    border-color: #5bbfcf !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -206,21 +222,24 @@ projects = [
         "name": "Corrector Co Natura",
         "tag": "Auditoría",
         "desc": "Validación automática del Certificado de Origen para la cuenta Natura. Detecta inconsistencias y genera reporte de correctores.",
-        "url": "https://corrector-co-natura.streamlit.app/"
+        "url": "https://corrector-co-natura.streamlit.app/",
+        "page": None
     },
     {
         "icon": "📋",
         "name": "Corrector Descripciones Finning",
         "tag": "Auditoría",
         "desc": "Control y corrección de descripciones de mercadería para la cuenta Finning. Verifica y normaliza la uniformidad de datos.",
-        "url": "https://corrector-descripciones.streamlit.app/"
+        "url": None,
+        "page": "pages/2_corrector_descripciones.py"
     },
     {
         "icon": "📊",
         "name": "KPI Finning",
         "tag": "Reportes",
         "desc": "Dashboard de indicadores clave de desempeño operativo para la cuenta Finning. Visualización de métricas y seguimiento de gestión.",
-        "url": "https://interlog-kpi-finning.streamlit.app/"
+        "url": "https://interlog-kpi-finning.streamlit.app/",
+        "page": None
     },
 ]
 
@@ -236,7 +255,12 @@ for i, p in enumerate(projects):
             <div class="card-desc">{p['desc']}</div>
         </div>
         """, unsafe_allow_html=True)
-        st.link_button("Abrir herramienta", p['url'], use_container_width=True)
+
+        if p["page"]:
+            if st.button("Abrir herramienta", key=f"btn_{i}", use_container_width=True):
+                st.switch_page(p["page"])
+        else:
+            st.link_button("Abrir herramienta", p["url"], use_container_width=True)
 
 st.markdown("""
 <div class="coming-soon">
