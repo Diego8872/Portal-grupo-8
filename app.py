@@ -83,22 +83,31 @@ projects = [
         "desc": "Dashboard de indicadores clave de desempeño operativo para la cuenta Finning. Visualización de métricas y seguimiento de gestión.",
         "page": "pages/3_kpi_finning.py"
     },
+    {
+        "icon": "📑",
+        "name": "Planillas KPI CM",
+        "tag": "Reportes",
+        "desc": "Generación automática de reportes mensuales de Certificados de Mercadería. Produce CM Presentados y CM Aprobados desde la planilla madre.",
+        "page": "pages/4_planillas_kpi_cm.py"
+    },
 ]
 
-cols = st.columns(3)
-
-for i, p in enumerate(projects):
-    with cols[i]:
-        st.markdown(f"""
-        <div class="card-wrapper">
-            <div class="card-tag">{p['tag']}</div>
-            <span class="card-icon">{p['icon']}</span>
-            <div class="card-name">{p['name']}</div>
-            <div class="card-desc">{p['desc']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("Abrir herramienta", key=f"btn_{i}", use_container_width=True):
-            st.switch_page(p["page"])
+# Renderizar en filas de 3
+for row_start in range(0, len(projects), 3):
+    row_projects = projects[row_start:row_start+3]
+    cols = st.columns(3)
+    for i, p in enumerate(row_projects):
+        with cols[i]:
+            st.markdown(f"""
+            <div class="card-wrapper">
+                <div class="card-tag">{p['tag']}</div>
+                <span class="card-icon">{p['icon']}</span>
+                <div class="card-name">{p['name']}</div>
+                <div class="card-desc">{p['desc']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("Abrir herramienta", key=f"btn_{row_start+i}", use_container_width=True):
+                st.switch_page(p["page"])
 
 st.markdown("""
 <div class="coming-soon">
