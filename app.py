@@ -29,7 +29,12 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 .card-name { font-family: 'Outfit', sans-serif; font-size: 1.05rem; font-weight: 600; color: #ffffff; margin-bottom: 10px; line-height: 1.3; }
 .card-desc { font-size: 0.80rem; color: rgba(255,255,255,0.65); font-weight: 300; line-height: 1.65; margin-bottom: 18px; }
 
-.coming-soon { background: rgba(255,255,255,0.03); border: 1.5px dashed rgba(91,191,207,0.18); border-radius: 20px; padding: 28px; text-align: center; color: rgba(255,255,255,0.2); font-size: 0.78rem; letter-spacing: 0.12em; font-style: italic; margin-top: 4px; }
+.card-soon { background: rgba(255,255,255,0.03); border: 1px solid rgba(91,191,207,0.12); border-radius: 20px; padding: 28px 26px; margin-bottom: 4px; opacity: 0.6; }
+.card-soon-tag { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255,255,255,0.3); border: 1px solid rgba(255,255,255,0.12); padding: 3px 10px; border-radius: 20px; margin-bottom: 14px; }
+.card-soon-icon { font-size: 1.8rem; margin-bottom: 10px; display: block; filter: grayscale(1); opacity: 0.4; }
+.card-soon-name { font-family: 'Outfit', sans-serif; font-size: 1.05rem; font-weight: 600; color: rgba(255,255,255,0.35); margin-bottom: 10px; line-height: 1.3; }
+.card-soon-badge { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.25); border: 1px dashed rgba(255,255,255,0.15); padding: 8px 18px; border-radius: 8px; margin-top: 8px; }
+
 .portal-footer { text-align: center; margin-top: 48px; font-size: 0.62rem; color: rgba(255,255,255,0.2); letter-spacing: 0.2em; text-transform: uppercase; }
 .footer-line { width: 100%; height: 1px; background: linear-gradient(90deg, transparent, rgba(91,191,207,0.25), transparent); margin-bottom: 20px; }
 
@@ -92,28 +97,39 @@ projects = [
     },
 ]
 
-# Renderizar en filas de 3
-for row_start in range(0, len(projects), 3):
-    row_projects = projects[row_start:row_start+3]
-    cols = st.columns(3)
-    for i, p in enumerate(row_projects):
-        with cols[i]:
-            st.markdown(f"""
-            <div class="card-wrapper">
-                <div class="card-tag">{p['tag']}</div>
-                <span class="card-icon">{p['icon']}</span>
-                <div class="card-name">{p['name']}</div>
-                <div class="card-desc">{p['desc']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button("Abrir herramienta", key=f"btn_{row_start+i}", use_container_width=True):
-                st.switch_page(p["page"])
+coming_soon = [
+    {"icon": "🔍", "name": "Corrector Inal Coca"},
+    {"icon": "📋", "name": "Generador ANMAT Natura"},
+]
 
-st.markdown("""
-<div class="coming-soon">
-    Nuevas herramientas próximamente...
-</div>
-""", unsafe_allow_html=True)
+# Combinar activas + próximamente en una sola lista para renderizar en grilla de 3
+all_items = [("active", p) for p in projects] + [("soon", s) for s in coming_soon]
+
+for row_start in range(0, len(all_items), 3):
+    row_items = all_items[row_start:row_start+3]
+    cols = st.columns(3)
+    for i, (tipo, item) in enumerate(row_items):
+        with cols[i]:
+            if tipo == "active":
+                st.markdown(f"""
+                <div class="card-wrapper">
+                    <div class="card-tag">{item['tag']}</div>
+                    <span class="card-icon">{item['icon']}</span>
+                    <div class="card-name">{item['name']}</div>
+                    <div class="card-desc">{item['desc']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("Abrir herramienta", key=f"btn_{row_start+i}", use_container_width=True):
+                    st.switch_page(item["page"])
+            else:
+                st.markdown(f"""
+                <div class="card-soon">
+                    <div class="card-soon-tag">En desarrollo</div>
+                    <span class="card-soon-icon">{item['icon']}</span>
+                    <div class="card-soon-name">{item['name']}</div>
+                    <div class="card-soon-badge">Próximamente</div>
+                </div>
+                """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="portal-footer">
