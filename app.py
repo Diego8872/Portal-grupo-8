@@ -95,6 +95,13 @@ projects = [
         "desc": "Generación automática de reportes mensuales de Certificados de Mercadería. Produce CM Presentados y CM Aprobados desde la planilla madre.",
         "page": "pages/4_planillas_kpi_cm.py"
     },
+    {
+        "icon": "🗂️",
+        "name": "Template CM",
+        "tag": "Clasificación",
+        "desc": "Generación automática de planillas de clasificación de mercadería para Finning. Procesa FACAERO y DI para producir un template por factura.",
+        "page": "pages/5_template_cm.py"
+    },
 ]
 
 coming_soon = [
@@ -102,7 +109,6 @@ coming_soon = [
     {"icon": "📋", "name": "Generador ANMAT Natura"},
 ]
 
-# Combinar activas + próximamente en una sola lista para renderizar en grilla de 3
 all_items = [("active", p) for p in projects] + [("soon", s) for s in coming_soon]
 
 for row_start in range(0, len(all_items), 3):
