@@ -107,6 +107,11 @@ st.markdown("""
         border-radius: 8px; padding: 12px 16px;
         color: #f0c040; font-size: 0.88rem; margin: 6px 0;
     }
+
+    /* Ocultar botón GitHub y toolbar */
+    [data-testid="stToolbar"] { visibility: hidden !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -217,7 +222,6 @@ def generar_excel_bytes(filas):
     buf = io.BytesIO(); wb.save(buf); buf.seek(0); return buf.getvalue()
 
 def procesar(f_madre, f_despacho, f_equipos, f_desc, cond_merca):
-    # Archivos dinámicos
     df_madre = pd.read_excel(f_madre, sheet_name='Hoja2', dtype=str)
     df_subitem = pd.read_excel(f_despacho, sheet_name='Subitem', dtype=str)
 
@@ -229,7 +233,6 @@ def procesar(f_madre, f_despacho, f_equipos, f_desc, cond_merca):
     sheet_desc = 'Hoja2' if 'Hoja2' in xl_desc.sheet_names else xl_desc.sheet_names[0]
     df_desc_df = pd.read_excel(f_desc, sheet_name=sheet_desc, dtype=str)
 
-    # Archivos fijos del repo
     df_razon = pd.read_excel(ARCHIVOS_FIJOS['razon'], dtype=str)
     df_ncm_raw = pd.read_excel(ARCHIVOS_FIJOS['ncm'], dtype=str)
 
@@ -487,7 +490,6 @@ if st.session_state.get('procesado'):
         use_container_width=True
     )
 
-    # Template unificado
     todas_las_filas = []
     for filas in resultados.values():
         todas_las_filas.extend(filas)
