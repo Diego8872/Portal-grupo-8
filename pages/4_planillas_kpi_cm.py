@@ -125,6 +125,16 @@ section[data-testid="stFileUploadDropzone"] {
     margin-top: 6px;
 }
 
+/* Ocultar botón GitHub y toolbar */
+[data-testid="stToolbar"] { visibility: hidden !important; }
+[data-testid="stDecoration"] { display: none !important; }
+a[href*="github.com"] { display: none !important; }
+
+/* Ocultar botón GitHub y toolbar */
+    [data-testid="stToolbar"] { visibility: hidden !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    a[href*="github.com"] { display: none !important; }
+
 div[data-testid="stSelectbox"] > div {
     background: #13151f !important;
     border: 1px solid #2a2d3a !important;
