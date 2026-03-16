@@ -52,6 +52,11 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
     background: rgba(91,191,207,0.15) !important;
     border-color: #5bbfcf !important;
 }
+
+/* Ocultar botón GitHub y toolbar */
+[data-testid="stToolbar"] { visibility: hidden !important; }
+[data-testid="stDecoration"] { display: none !important; }
+a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
