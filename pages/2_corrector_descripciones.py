@@ -650,6 +650,11 @@ st.markdown("""
     .stInfo { background: rgba(13,59,110,0.35) !important; border-left-color: #1e6ab8 !important; }
     hr { border-color: rgba(30,106,184,0.25) !important; }
     .stDataFrame { border-radius: 8px !important; }
+
+    /* Ocultar botón GitHub y toolbar */
+    [data-testid="stToolbar"] { visibility: hidden !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
