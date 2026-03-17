@@ -22,6 +22,9 @@ st.markdown("""
     .alerta-descarte { background: #2a1f00; border: 1px solid #f0c040; border-radius: 8px; padding: 12px 16px; color: #f0c040; font-size: 0.88rem; margin: 6px 0; }
     .stButton > button { background: linear-gradient(135deg, #00b4d8, #0077b6) !important; color: white !important; font-weight: 600 !important; border: none !important; border-radius: 8px !important; }
     div[data-testid="stFileUploader"] label p { color: #00b4d8 !important; font-weight: 500 !important; }
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
