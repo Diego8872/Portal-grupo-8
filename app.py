@@ -53,7 +53,6 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
     border-color: #5bbfcf !important;
 }
 
-/* Ocultar botón GitHub y toolbar */
 [data-testid="stToolbar"] { visibility: hidden !important; }
 [data-testid="stDecoration"] { display: none !important; }
 a[href*="github.com"] { display: none !important; }
@@ -107,11 +106,17 @@ projects = [
         "desc": "Generación automática de planillas de clasificación de mercadería para Finning. Procesa FACAERO y DI para producir un template por factura.",
         "page": "pages/5_template_cm.py"
     },
+    {
+        "icon": "📋",
+        "name": "Generador ANMAT Natura",
+        "tag": "Importaciones",
+        "desc": "Generación automática del Anexo de Productos ANMAT para operaciones de importación Natura y Avon. Cruza PL, registros ANMAT, NCM y fabricantes.",
+        "page": "pages/6_anexo_anmat_natura.py"
+    },
 ]
 
 coming_soon = [
     {"icon": "🔍", "name": "Corrector Inal Coca"},
-    {"icon": "📋", "name": "Generador ANMAT Natura"},
 ]
 
 all_items = [("active", p) for p in projects] + [("soon", s) for s in coming_soon]
