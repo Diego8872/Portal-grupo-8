@@ -17,13 +17,15 @@ except ImportError:
     instalar("groq")
     from groq import Groq
 
-def get_gemini_model():
-    """Inicializa Groq si hay API key disponible."""
+def get_ia_model():
+    """Inicializa IA (Groq) si hay API key disponible."""
     try:
-        api_key = st.secrets.get("GROQ_API_KEY", None)
+        api_key = st.secrets["GROQ_API_KEY"]
         if api_key:
             return Groq(api_key=api_key)
-    except:
+    except KeyError:
+        pass
+    except Exception:
         pass
     return None
 
@@ -94,6 +96,7 @@ DICCIONARIO_TECNICO = {
     # ── Sistema hidráulico ──
     "pump": "bomba", "pumps": "bombas",
     "motor": "motor hidráulico",
+    "cylinder": "cilindro", "cylinders": "cilindros",
     "hose": "manguera", "hoses": "mangueras",
     "tube": "tubo", "tubes": "tubos",
     "pipe": "caño", "pipes": "caños",
@@ -151,6 +154,9 @@ DICCIONARIO_TECNICO = {
     "track": "oruga", "tracks": "orugas",
     "shoe": "zapata", "shoes": "zapatas",
     "pad": "zapata", "pads": "zapatas",
+    "link": "eslabón",
+    "idler": "rueda guía",
+    "roller": "rodillo",
     "blade": "cuchilla", "blades": "cuchillas",
     "bucket": "balde", "buckets": "baldes",
     "boom": "pluma", "booms": "plumas",
@@ -191,16 +197,22 @@ DICCIONARIO_TECNICO = {
     "asphalt": "asfalto",
     "single": "simple", "double": "doble",
     "drum": "tambor", "drums": "tambores",
+    "pulley": "polea",
+    "harness": "mazo de cables",
+    "flange": "brida",
 }
 
 
 # ── Lista de palabras españolas para segmentación ─────────
 PALABRAS_SEPARACION = set([
+    # Preposiciones, artículos, conjunciones
     "de","del","en","con","sin","para","por","al","la","las","los","el","un","una",
     "y","o","a","tipo","uso","entre","sobre","dos","tres","cuatro","sus",
+    # Materiales
     "acero","caucho","aluminio","plastico","plasticos","goma","nylon","nitrilo",
     "bronce","cobre","papel","celulosa","tela","malla","laton","fluorocarbono",
     "poliuretano","vulcanizado","vulcanizada","sintetico","textil","metalico","metalica",
+    # Componentes
     "filtro","sello","junta","juntas","perno","pernos","tuerca","tuercas","arandela",
     "arandelas","tornillo","tornillos","pasador","pasadores","grapa","aro","aros",
     "anillo","anillos","resorte","resortes","vastago","piston","pistones","cilindro",
@@ -221,6 +233,8 @@ PALABRAS_SEPARACION = set([
     "turbocargador","cartucho","cartuchos","elemento","elementos","colador","maza",
     "conjunto","juego","kit","grupo","oring","ring","segmento","segmentos",
     "suplemento","sujetador","retenedor","pasante","pasantes","orificio","orificios",
+    "perforacion","perforaciones","buloneria","planchuela",
+    # Adjetivos técnicos
     "hexagonal","rectangular","circular","redondo","ondulado","ondulada","reforzado",
     "reforzada","refuerzos","refuerzo","mecanizado","mecanizada","soldado","soldada",
     "soldadas","plegado","plegada","recto","conico","cilindrico","esferico","delantero",
@@ -229,6 +243,7 @@ PALABRAS_SEPARACION = set([
     "simple","doble","triple","radial","axial","macho","hembra","antifriccion","plano",
     "plana","hueco","solido","trenzada","trenzado","giratoria","giratorio","mecanizada",
     "fundicion","tubular","tensionador","guardabarro","guardabarros","barrero","vulcanizada",
+    # Técnicos específicos
     "presion","retencion","transmision","freno","embrague","diferencial","alimentacion",
     "conexion","zocalo","zocalos","termoplastico","termoplasticos","extremos","extremo",
     "diametro","longitud","espesor","ajuste","montaje","sujecion","armado","completo",
@@ -240,23 +255,34 @@ PALABRAS_SEPARACION = set([
     "excavadora","combustible","aceite","agua","aire","grasa","lubricante","refrigerante",
     "escape","admision","general","industrial","agricola","terminal","terminales","parte",
     "sistema","serie","modelo","endurecer","mando","final","fijo","acondicionado",
+    "monta","cabeza","respaldo","espaciadora","metal","comprimido","arranque","bateria",
+    "forma","rueda","dentada","mensula","suspension","plataforma","acceso","fondo","luz",
+    "controles","control","junto","junto","bornes","borne","batería","junto","controle",
+    "junto","pasantes","interno","fluido","plastico",
+    # Abreviaciones
     "vcc","vdc","psi","thk","cat","sem",
 ])
 
 
+
 def tiene_palabras_pegadas(texto):
+    """Detecta si un texto tiene palabras pegadas."""
     palabras = texto.split()
+    # Descripción de una sola palabra larga
     if len(palabras) == 1 and len(texto) > 6:
         return True
+    # Alguna palabra larga sin números ni símbolos (probable pegado)
     for p in palabras:
         solo_letras = re.sub(r'[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ]', '', p)
         if len(solo_letras) > 12:
             return True
+    # Proporción baja de espacios respecto a la longitud (muchas palabras pegadas)
     if len(texto) > 20 and len(palabras) < len(texto) / 8:
         return True
     return False
 
-def procesar_lote_gemini(modelo, descripciones):
+def procesar_lote_ia(modelo, descripciones):
+    """Manda un lote de descripciones a Gemini para separar y traducir."""
     lista = "\n".join([f"{i+1}. {d}" for i, d in enumerate(descripciones)])
     prompt = f"""Eres un experto en repuestos de maquinaria pesada minera (Caterpillar, Komatsu, Volvo, etc).
 
@@ -267,6 +293,15 @@ REGLAS:
 - Traducir palabras en inglés al español: filter→filtro, seal→sello, bearing→rodamiento, housing→carcasa, bracket→soporte, bushing→buje, shaft→eje, bolt→perno, hose→manguera, valve→válvula
 - Corregir acentos y ortografía: presion→presión, transmision→transmisión, hidraulico→hidráulico, neumatico→neumático, lubricacion→lubricación
 - NO cambiar: marcas (CAT, SEM), modelos (320C), medidas (25MM, 4PSI, VCC), la letra L cuando indica forma
+
+EJEMPLOS (seguir exactamente este estilo):
+"Biseladodeplastico" → "Biselado de plástico"
+"VALVULADEPASAJEDEAIRECOMPRIMIDO" → "Válvula de pasaje de aire comprimido"
+"Filtroelementodepapelcelulosa" → "Filtro elemento de papel celulosa"
+"PlacaplanchueladeaceroplegadaenL" → "Placa planchuela de acero plegada en L"
+"Hojadecortederecho" → "Hoja de corte derecho"
+"BOMBADEPRELUBRICACION" → "Bomba de prelubricación"
+"SEGMENTOINTERMEDIODEDIENTEDEPALA" → "Segmento intermedio de diente de pala"
 
 FORMATO DE RESPUESTA — solo el número y el texto corregido, una línea por item:
 1. texto corregido aquí
@@ -282,11 +317,13 @@ Descripciones:
             temperature=0.1,
         )
         texto_respuesta = response.choices[0].message.content.strip()
+        
         lineas = texto_respuesta.split("\n")
         resultados = {}
         for linea in lineas:
             linea = linea.strip()
             if not linea: continue
+            # Intentar varios formatos de respuesta
             match = re.match(r'^(\d+)[\.\)\-\:]\s*(.+)$', linea)
             if match:
                 idx = int(match.group(1)) - 1
@@ -295,11 +332,69 @@ Descripciones:
     except Exception as e:
         return {}
 
+def detectar_equipo_groq(modelo, descripciones):
+    """Usa Groq para detectar referencia a equipos en descripciones ambiguas."""
+    lista = "\n".join([f"{i+1}. {d}" for i, d in enumerate(descripciones)])
+    prompt = f"""Sos un experto en repuestos de maquinaria pesada (Caterpillar, Komatsu, SEM, etc).
+
+Para cada descripción, determiná si menciona el equipo donde se usa el repuesto.
+Si menciona un equipo, separalo del resto de la descripción.
+
+FORMATO DE RESPUESTA — una línea por item:
+- Si HAY referencia a equipo: número|descripción sin equipo|referencia al equipo
+- Si NO HAY referencia: número|sin equipo|
+
+Ejemplos:
+"Pestillo acero para tapa de cajon de bateria cargador frontal 950M"
+→ 1|Pestillo de acero para tapa de cajón de batería|cargador frontal 950M
+
+"Pista de ruleman conico de acero inox de transmision de topador cat d9"  
+→ 2|Pista de rodamiento cónico de acero inoxidable de transmisión|topador CAT D9
+
+"ANILLO TORICO DE NYLON CILINDRO DE ELEVACION CARGADOR 966"
+→ 3|Anillo tórico de nylon cilindro de elevación|Cargador 966
+
+"Tornillo de acero M10"
+→ 4|Tornillo de acero M10|
+
+Descripciones:
+{lista}"""
+
+    try:
+        response = modelo.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+        )
+        texto = response.choices[0].message.content.strip()
+        resultados = {}
+        for linea in texto.split("\n"):
+            linea = linea.strip()
+            if not linea: continue
+            partes = linea.split("|")
+            if len(partes) >= 3:
+                try:
+                    idx = int(re.match(r'(\d+)', partes[0]).group(1)) - 1
+                    desc_limpia = partes[1].strip()
+                    equipo = partes[2].strip()
+                    if desc_limpia:
+                        resultados[idx] = (desc_limpia, equipo)
+                except:
+                    pass
+        return resultados
+    except:
+        return {}
+
 def separar_palabras_pegadas(texto, modelo=None):
+    """Separa palabras pegadas usando Gemini si disponible, sino diccionario."""
     if not tiene_palabras_pegadas(texto):
         return texto, False
+    
     if modelo:
-        return texto, False
+        # Modo Gemini - se llama por lotes desde procesar_archivo
+        return texto, False  # placeholder, se procesa en lote
+    
+    # Fallback: diccionario local
     palabras = texto.split()
     resultado = []
     modificado = False
@@ -320,6 +415,7 @@ def separar_palabras_pegadas(texto, modelo=None):
     return " ".join(resultado), modificado
 
 def segmentar_dp(texto):
+    """Segmentación por programación dinámica - fallback sin Gemini."""
     n = len(texto)
     dp = [None] * (n + 1)
     dp[0] = []
@@ -375,15 +471,24 @@ CORRECCIONES_ORTOGRAFIA = {
     r'\bfluoroelastomero\b': 'fluoroelastómero',
 }
 
+# ── Funciones ──────────────────────────────────────────────
+
 def limpiar_url(texto):
     return re.sub(r'https?://\S+', '', texto).strip()
 
 def limpiar_codigo_interno(texto):
+    """Elimina códigos internos tipo SEAL_EXHAUST_1974834.
+    Si el texto es SOLO un código, extrae las palabras descriptivas y las traduce."""
+    
+    # Detectar si todo el texto es un código tipo PALABRA_PALABRA_NUMERO
     patron_codigo_completo = r'^([A-Z][A-Z_]+)_\d{5,}$'
     match = re.match(patron_codigo_completo, texto.strip())
+    
     if match:
+        # Extraer partes descriptivas (sin el número final)
         partes = texto.strip().split('_')
         palabras = [p for p in partes if not p.isdigit() and len(p) > 1]
+        # Traducir cada parte usando el diccionario
         traducidas = []
         for p in palabras:
             p_lower = p.lower()
@@ -392,6 +497,8 @@ def limpiar_codigo_interno(texto):
             else:
                 traducidas.append(p.capitalize())
         return " ".join(traducidas), True
+    
+    # Caso normal: eliminar códigos embebidos en el texto
     texto = re.sub(r'\b[A-Z]+_[A-Z]+_\d{5,}\b', '', texto)
     texto = re.sub(r'\b[A-Z_]{3,}_\d{5,}\b', '', texto)
     return re.sub(r'\s+', ' ', texto).strip(), False
@@ -399,13 +506,71 @@ def limpiar_codigo_interno(texto):
 def detectar_palabras_clave(texto):
     texto_upper = texto.upper()
     encontradas = []
+    # Palabras simples
     for p in PALABRAS_CLAVE:
         if re.search(r'\b' + p + r'\b', texto_upper):
             encontradas.append(p)
+    # Frases de dos o más palabras (deben aparecer juntas)
     for frase in PALABRAS_CLAVE_FRASE:
         if frase in texto_upper:
             encontradas.append(frase)
     return " | ".join([f"⚠️ {p}" for p in encontradas]) if encontradas else ""
+
+
+PATRON_CORTE_EQUIPO = re.compile(r'''(?ix)
+    (
+        ,?\s*uso\s+en\b |
+        ,?\s*uso\s+como\b |
+        ,?\s*uso\s+general\s+en\b |
+        ,?\s*de\s+uso\s+en\b |
+        ,?\s*pertenece\s+al\b |
+        ,?\s*es\s+parte\s+del\b |
+        ,?\s*para\s+los\s+equipos\b |
+        ,?\s*utilizados?\s+en\b |
+        ,?\s*utilizada\s+en\s+equipo\b |
+        ,?\s*equipos?\s+varios\b |
+        ,?\s*en\s+equipo\s+\w |
+        ,?\s*en\s+l[ií]nea\s+de\b
+    )
+''')
+
+# Nombres de equipos conocidos para detección directa
+NOMBRES_EQUIPOS = re.compile(r'''(?ix)
+    ,?\s*
+    (
+        cargador\s+frontal | cargador\s+a\s+frontal | minicargador |
+        excavadora | motoniveladora | topador | tractor\s+topador |
+        camion\s+minero | camion | volquete | retroexcavadora |
+        compactador | pavimentador | terminadora | motogenerador |
+        grupo\s+electr[oó]geno | generador | tren\s+de\s+potencia |
+        cargadora | manipulador | perforadora
+    )
+    [\s,]+
+    [\w\s\-\/\.]{1,30}         # modelo/número después del equipo
+''')
+
+def extraer_equipo(texto):
+    """Extrae referencia al equipo usando regex (A) y marca para Groq (B)."""
+    texto = texto.replace('\n', ' ').replace('\r', ' ')
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    
+    # OPCION A1 — patrones de frase clave
+    match = PATRON_CORTE_EQUIPO.search(texto)
+    if match:
+        desc_limpia = texto[:match.start()].strip().rstrip(',').strip()
+        equipo = texto[match.start():].strip().lstrip(',').strip()
+        return desc_limpia, equipo, False  # False = no necesita Groq
+    
+    # OPCION A2 — nombre de equipo conocido al final
+    match2 = NOMBRES_EQUIPOS.search(texto)
+    if match2:
+        desc_limpia = texto[:match2.start()].strip().rstrip(',').strip()
+        equipo = texto[match2.start():].strip().lstrip(',').strip()
+        return desc_limpia, equipo, False
+    
+    # OPCION B — marcar para Groq si descripción es larga y compleja
+    necesita_groq = len(texto) > 40
+    return texto, "", necesita_groq
 
 def corregir_ortografia(texto):
     errores = []
@@ -423,6 +588,7 @@ def es_medida(palabra):
     return bool(re.match(r'^\d+[\.\-,]?\d*\s*(mm|MM|cm|m|psi|PSI|kg|KG|lb|VCC|VCA|rpm|RPM|pulg|\'|\")?$', palabra))
 
 def traducir_token(token):
+    """Traduce solo si la palabra está en el diccionario técnico."""
     limpio = token.strip('.,;:()/\'"`°-').lower()
     if limpio in DICCIONARIO_TECNICO:
         return DICCIONARIO_TECNICO[limpio], limpio
@@ -432,10 +598,15 @@ def traducir_token(token):
 def procesar_descripcion(descripcion_original):
     errores_encontrados = []
 
+    # 1. Limpiar URL
     desc = limpiar_url(descripcion_original)
     if desc != descripcion_original:
         errores_encontrados.append("URL eliminada")
 
+    # 2. Extraer referencia a equipo
+    desc, ref_equipo, necesita_groq_equipo = extraer_equipo(desc)
+
+    # 3. Limpiar códigos internos
     desc_sin_codigos, fue_solo_codigo = limpiar_codigo_interno(desc)
     if fue_solo_codigo:
         errores_encontrados.append(f"código interno traducido: {desc.strip()}→{desc_sin_codigos}")
@@ -443,14 +614,17 @@ def procesar_descripcion(descripcion_original):
         errores_encontrados.append("código interno eliminado")
     desc = desc_sin_codigos
 
+    # 4. Separar palabras pegadas
     desc_separada, fue_separada = separar_palabras_pegadas(desc)
     if fue_separada:
         errores_encontrados.append("palabras separadas")
     desc = desc_separada
 
+    # 5. Corregir ortografía
     desc, errores_orto = corregir_ortografia(desc)
     errores_encontrados.extend(errores_orto)
 
+    # 6. Traducir palabra por palabra
     tokens = desc.split()
     tokens_nuevos = []
     for token in tokens:
@@ -465,13 +639,17 @@ def procesar_descripcion(descripcion_original):
             tokens_nuevos.append(token)
 
     desc = " ".join(tokens_nuevos)
+
+    # 7. Limpiar espacios y normalizar
     desc = re.sub(r'\s+', ' ', desc).strip()
     if desc:
         desc = desc[0].upper() + desc[1:]
 
+    # 8. Detectar palabras clave
     keywords = detectar_palabras_clave(desc)
+
     resumen = " | ".join(errores_encontrados) if errores_encontrados else "Sin errores"
-    return desc, resumen, keywords
+    return desc, resumen, keywords, ref_equipo, necesita_groq_equipo
 
 
 def generar_excel(resultados):
@@ -489,7 +667,7 @@ def generar_excel(resultados):
         top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC')
     )
 
-    encabezados = ["Código", "Descripción Original", "Errores Detectados", "Palabras Clave ⚠️", "Descripción Corregida"]
+    encabezados = ["Código", "Descripción Original", "Errores Detectados", "Palabras Clave ⚠️", "Descripción Corregida", "Equipo/Uso"]
     for col, titulo in enumerate(encabezados, 1):
         cell = ws.cell(row=1, column=col, value=titulo)
         cell.fill = header_fill
@@ -499,12 +677,12 @@ def generar_excel(resultados):
     ws.row_dimensions[1].height = 32
 
     for fila, r in enumerate(resultados, 2):
-        for col, val in enumerate([r["codigo"], r["original"], r["errores"], r["keywords"], r["corregida"]], 1):
+        for col, val in enumerate([r["codigo"], r["original"], r["errores"], r["keywords"], r["corregida"], r.get("equipo","")], 1):
             cell = ws.cell(row=fila, column=col, value=val)
             cell.border = thin
             cell.alignment = Alignment(wrap_text=True, vertical="top")
         fill = kw_fill if r["keywords"] else (ok_fill if r["errores"] == "Sin errores" else error_fill)
-        for col in range(1, 6):
+        for col in range(1, 7):
             ws.cell(row=fila, column=col).fill = fill
 
     ws.column_dimensions['A'].width = 14
@@ -512,6 +690,7 @@ def generar_excel(resultados):
     ws.column_dimensions['C'].width = 38
     ws.column_dimensions['D'].width = 22
     ws.column_dimensions['E'].width = 45
+    ws.column_dimensions['F'].width = 55
 
     ws2 = wb.create_sheet("Resumen")
     total = len(resultados)
@@ -533,7 +712,6 @@ def generar_excel(resultados):
 
 
 # ── UI ─────────────────────────────────────────────────────
-
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@300;400;500&display=swap');
@@ -650,11 +828,6 @@ st.markdown("""
     .stInfo { background: rgba(13,59,110,0.35) !important; border-left-color: #1e6ab8 !important; }
     hr { border-color: rgba(30,106,184,0.25) !important; }
     .stDataFrame { border-radius: 8px !important; }
-
-    /* Ocultar botón GitHub y toolbar */
-    [data-testid="stToolbar"] { visibility: hidden !important; }
-    [data-testid="stDecoration"] { display: none !important; }
-    a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -695,20 +868,24 @@ if archivo:
         col_codigo = df.columns[0]
         col_desc = df.columns[1]
 
-        modelo_gemini = get_gemini_model()
-        if modelo_gemini:
+        # Inicializar IA
+        modelo_ia = get_ia_model()
+        if modelo_ia:
             st.info("🤖 IA activada — separación y traducción inteligente")
         else:
-            st.warning("⚠️ Sin Gemini — usando modo diccionario")
+            st.warning("⚠️ Sin IA — usando modo diccionario")
 
         progress_bar = st.progress(0)
         status_text = st.empty()
         log_area = st.empty()
         log_lines = []
 
-        descripciones_gemini = {}
-        if modelo_gemini:
-            status_text.markdown("🤖 **Paso 1/2:** Procesando con Gemini AI...")
+        # PRE-PROCESO: si hay Gemini, separar en lotes las descripciones pegadas
+        descripciones_ia = {}
+        if modelo_ia:
+            status_text.markdown("🤖 **Paso 1/2:** Procesando con IA...")
+            
+            # Identificar las que necesitan Gemini
             indices_pegadas = []
             descs_pegadas = []
             for i, row in df.iterrows():
@@ -716,40 +893,77 @@ if archivo:
                 if desc and desc != "nan" and tiene_palabras_pegadas(desc):
                     indices_pegadas.append(i)
                     descs_pegadas.append(desc)
-
+            
+            # Procesar en lotes de 20
             LOTE = 50
             for batch_start in range(0, len(descs_pegadas), LOTE):
                 batch_idx = indices_pegadas[batch_start:batch_start+LOTE]
                 batch_desc = descs_pegadas[batch_start:batch_start+LOTE]
-                resultados_gemini = procesar_lote_gemini(modelo_gemini, batch_desc)
+                
+                resultados_gemini = procesar_lote_ia(modelo_ia, batch_desc)
                 for j, idx_orig in enumerate(batch_idx):
                     if j in resultados_gemini:
-                        descripciones_gemini[idx_orig] = resultados_gemini[j]
+                        descripciones_ia[idx_orig] = resultados_gemini[j]
+                
                 prog = min((batch_start + LOTE) / max(len(descs_pegadas), 1), 1.0)
                 progress_bar.progress(prog * 0.5)
-            status_text.markdown(f"🤖 Gemini procesó **{len(descripciones_gemini)}** descripciones")
+            
+            status_text.markdown(f"🤖 IA procesó **{len(descripciones_ia)}** descripciones")
+            
+            # PASO 1B: detectar equipos con Groq en casos ambiguos
+            status_text.markdown("🔍 **Paso 1B/2:** Detectando referencias a equipos...")
+            indices_sin_equipo = []
+            descs_sin_equipo = []
+            for i, row in df.iterrows():
+                desc = str(row[col_desc]).strip() if pd.notna(row[col_desc]) else ""
+                if not desc or desc == "nan": continue
+                _, _, necesita = extraer_equipo(desc)
+                if necesita:
+                    indices_sin_equipo.append(i)
+                    descs_sin_equipo.append(desc)
+            
+            equipos_groq = {}
+            for batch_start in range(0, len(descs_sin_equipo), LOTE):
+                batch_idx = indices_sin_equipo[batch_start:batch_start+LOTE]
+                batch_desc = descs_sin_equipo[batch_start:batch_start+LOTE]
+                resultados_eq = detectar_equipo_groq(modelo_ia, batch_desc)
+                for j, idx_orig in enumerate(batch_idx):
+                    if j in resultados_eq:
+                        equipos_groq[idx_orig] = resultados_eq[j]
 
+        if not modelo_ia:
+            equipos_groq = {}
+        
+        # PROCESO PRINCIPAL
         status_text.markdown("⚙️ **Paso 2/2:** Aplicando correcciones finales...")
         for i, row in df.iterrows():
             codigo = str(row[col_codigo]).strip()
             desc_original = str(row[col_desc]).strip() if pd.notna(row[col_desc]) else ""
 
-            progress_bar.progress(0.5 + (i + 1) / total * 0.5 if modelo_gemini else (i + 1) / total)
+            progress_bar.progress(0.5 + (i + 1) / total * 0.5 if modelo_ia else (i + 1) / total)
             status_text.markdown(f"⚙️ Procesando **{i+1} de {total}**: `{codigo}`")
 
             if not desc_original or desc_original == "nan":
-                resultados.append({"codigo": codigo, "original": "", "errores": "Sin descripción", "keywords": "", "corregida": ""})
+                resultados.append({"codigo": codigo, "original": "", "errores": "Sin descripción", "keywords": "", "corregida": "", "equipo": ""})
                 log_lines.append(f"⬜ [{i+1:03d}] {codigo} → Sin descripción")
             else:
-                if i in descripciones_gemini:
-                    desc_para_procesar = descripciones_gemini[i]
-                    corregida, errores, keywords = procesar_descripcion(desc_para_procesar)
-                    if "gemini" not in errores.lower():
+                # Si IA ya procesó esta descripción, usarla como base
+                if i in descripciones_ia:
+                    desc_para_procesar = descripciones_ia[i]
+                    corregida, errores, keywords, equipo, _ = procesar_descripcion(desc_para_procesar)
+                    if "separado" not in errores.lower():
                         errores = ("separado/traducido por IA | " + errores).rstrip(" | ").replace("Sin errores", "").strip(" | ") or "separado/traducido por IA"
                 else:
-                    corregida, errores, keywords = procesar_descripcion(desc_original)
-
-                resultados.append({"codigo": codigo, "original": desc_original, "errores": errores, "keywords": keywords, "corregida": corregida})
+                    corregida, errores, keywords, equipo, _ = procesar_descripcion(desc_original)
+                
+                # Si Groq detectó equipo en casos ambiguos, usarlo
+                if not equipo and i in equipos_groq:
+                    desc_groq, equipo_groq = equipos_groq[i]
+                    if equipo_groq:
+                        equipo = equipo_groq
+                        corregida = desc_groq
+                
+                resultados.append({"codigo": codigo, "original": desc_original, "errores": errores, "keywords": keywords, "corregida": corregida, "equipo": equipo})
                 icono = "⚠️" if keywords else ("✅" if errores == "Sin errores" else "✏️")
                 log_lines.append(f"{icono} [{i+1:03d}] {codigo} → {corregida[:55]}...")
 
@@ -757,7 +971,7 @@ if archivo:
 
         progress_bar.progress(1.0)
         status_text.markdown("✅ **¡Procesamiento completado!**")
-
+        
         st.divider()
 
         sin_errores = sum(1 for r in resultados if r["errores"] == "Sin errores")
@@ -772,7 +986,7 @@ if archivo:
 
         st.subheader("📋 Resultados")
         df_out = pd.DataFrame(resultados)
-        df_out.columns = ["Código", "Descripción Original", "Errores Detectados", "Palabras Clave", "Descripción Corregida"]
+        df_out.columns = ["Código", "Descripción Original", "Errores Detectados", "Palabras Clave", "Descripción Corregida", "Equipo/Uso"]
         st.dataframe(df_out, use_container_width=True, height=420)
 
         st.divider()
