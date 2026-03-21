@@ -1,5 +1,4 @@
 import streamlit as st
-import pdfplumber
 import openpyxl
 import subprocess
 import os
@@ -47,49 +46,38 @@ if "n_items" not in st.session_state:
 
 # ─── UTILIDADES PDF ───
 
-def extract_text_pdfplumber(pdf_bytes):
+def get_text(pdf_bytes, label, dpi=250):
+    """Extrae texto del PDF usando pymupdf (rápido) con fallback a tesseract OCR."""
+    import fitz
     text = ""
     try:
-        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-            for page in pdf.pages:
-                t = page.extract_text()
-                if t:
-                    text += t + "\n"
-    except:
-        pass
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        for page in doc:
+            t = page.get_text()
+            if t:
+                text += t + "\n"
+            else:
+                # Página escaneada: usar OCR integrado de pymupdf
+                tp = page.get_textpage_ocr(language="eng+spa", dpi=dpi)
+                t_ocr = page.get_text(textpage=tp)
+                text += t_ocr + "\n"
+        doc.close()
+    except Exception as e:
+        # Fallback a tesseract externo si fitz falla
+        tmp_pdf = f"/tmp/{label}.pdf"
+        with open(tmp_pdf, "wb") as f:
+            f.write(pdf_bytes)
+        subprocess.run(["pdftoppm", "-r", str(dpi), tmp_pdf, f"/tmp/ocr_{label}"],
+                       capture_output=True)
+        images = sorted([x for x in os.listdir("/tmp") if x.startswith(f"ocr_{label}")])
+        for img in images:
+            result = subprocess.run(["tesseract", f"/tmp/{img}", "stdout"],
+                                    capture_output=True, text=True)
+            text += result.stdout
+        for img in images:
+            try: os.remove(f"/tmp/{img}")
+            except: pass
     return text.strip()
-
-
-def ocr_pdf_bytes(pdf_bytes, label, dpi=250):
-    tmp_pdf = f"/tmp/{label}.pdf"
-    with open(tmp_pdf, "wb") as f:
-        f.write(pdf_bytes)
-    subprocess.run(["pdftoppm", "-r", str(dpi), tmp_pdf, f"/tmp/ocr_{label}"],
-                   capture_output=True)
-    images = sorted([x for x in os.listdir("/tmp") if x.startswith(f"ocr_{label}")])
-    text = ""
-    for img in images:
-        result = subprocess.run(["tesseract", f"/tmp/{img}", "stdout"],
-                                capture_output=True, text=True)
-        text += result.stdout
-    for img in images:
-        try:
-            os.remove(f"/tmp/{img}")
-        except:
-            pass
-    return text
-
-
-def get_text(pdf_bytes, label, dpi=250):
-    text = extract_text_pdfplumber(pdf_bytes)
-    # Si pdfplumber no extrajo datos reales (solo labels del formulario), usar OCR
-    tiene_datos = bool(
-        re.search(r'\d{2}-\d{8}-\d', text) or
-        re.search(r'\d{2}/\d{2}/\d{4}', text)
-    )
-    if not text or not tiene_datos:
-        text = ocr_pdf_bytes(pdf_bytes, label, dpi=dpi)
-    return text
 
 
 # ─── PARSEO DI ───
