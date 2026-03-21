@@ -29,6 +29,9 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
     padding: 0.8rem 1.2rem; color: #2e7d32; font-weight: 500; font-size: 0.9rem; margin: 0.5rem 0;
 }
 #GithubIcon { visibility: hidden; }
+[data-testid="stToolbar"] { visibility: hidden !important; }
+[data-testid="stDecoration"] { display: none !important; }
+[data-testid="stHeader"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
