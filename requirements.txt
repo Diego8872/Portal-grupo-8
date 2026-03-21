@@ -6,6 +6,5 @@ pdfplumber
 plotly
 numpy
 python-pptx
-pyxlsb
-xlrd
-reportlab
+pytesseract
+pillow
