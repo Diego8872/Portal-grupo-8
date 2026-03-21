@@ -113,6 +113,13 @@ projects = [
         "desc": "Generación automática del Anexo de Productos ANMAT para operaciones de importación Natura y Avon. Cruza PL, registros ANMAT, NCM y fabricantes.",
         "page": "pages/6_anexo_anmat_natura.py"
     },
+    {
+        "icon": "📄",
+        "name": "DJIM Finning POWER",
+        "tag": "Importaciones",
+        "desc": "Generación automática de DJIM (Excel) y DJIM Electrónica (TXT) para importaciones de motores y bloques Finning Power.",
+        "page": "pages/7_DJIM_Finning_POWER.py"
+    },
 ]
 
 coming_soon = [
