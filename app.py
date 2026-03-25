@@ -127,6 +127,13 @@ projects = [
         "desc": "Consultá normativa, decretos y análisis sobre el Régimen de Incentivo para Grandes Inversiones (RIGI) en base a fuentes oficiales verificadas.",
         "page": "pages/8_RIGI_Normativa_Consultas.py"
     },
+    {
+        "icon": "🍽️",
+        "name": "INAL — Normativa y Consultas",
+        "tag": "Normativa",
+        "desc": "Consultá normativa y procedimientos del Instituto Nacional de Alimentos (INAL) para importación de productos alimenticios. Fuentes oficiales verificadas.",
+        "page": "pages/9_INAL_Normativa_Consultas.py"
+    },
 ]
 
 coming_soon = [
