@@ -120,6 +120,13 @@ projects = [
         "desc": "Generación automática de DJIM (Excel) y DJIM Electrónica (TXT) para importaciones de motores y bloques Finning Power.",
         "page": "pages/7_DJIM_Finning_POWER.py"
     },
+    {
+        "icon": "🏛️",
+        "name": "RIGI — Normativa y Consultas",
+        "tag": "Normativa",
+        "desc": "Consultá normativa, decretos y análisis sobre el Régimen de Incentivo para Grandes Inversiones (RIGI) en base a fuentes oficiales verificadas.",
+        "page": "pages/8_RIGI_Normativa_Consultas.py"
+    },
 ]
 
 coming_soon = [
