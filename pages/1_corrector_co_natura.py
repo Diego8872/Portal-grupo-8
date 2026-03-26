@@ -219,7 +219,7 @@ def leer_co_pdf(path):
     pattern = re.compile(
         r'^\s*(\d{1,2})\s+(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+p[çc°¢]\s+([\d\.]+,\d{3})'
     )
-    mat_re = re.compile(r'(?:;\s*)?(\d{7,8})\s*$')
+    mat_re = re.compile(r'(?:;\s*)?(\d{7,8})(?:\s|$)')
 
     items = []
     for i, l in enumerate(full_lines):
