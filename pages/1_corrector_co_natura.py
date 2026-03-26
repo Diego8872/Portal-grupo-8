@@ -109,6 +109,11 @@ section[data-testid="stFileUploadDropzone"] {
     width: 100%;
     font-weight: 500 !important;
 }
+
+/* Ocultar botón GitHub y toolbar */
+[data-testid="stToolbar"] { visibility: hidden !important; }
+[data-testid="stDecoration"] { display: none !important; }
+a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -154,7 +159,7 @@ def leer_excel(path):
             ncm_clean = ncm_raw[:10]
             mat = row[col_mat-1]
             if mat and not str(mat).replace('.','').isdigit():
-                mat = row[5]  # fallback columna 6
+                mat = row[5]
             items.append({'ITEM': row[0], 'NCM': ncm_clean, 'CANTIDAD': row[col_cant-1], 'MARCA_MODEL_OTRO': mat})
     ws_car = wb['Carátula']
     rows_car = list(ws_car.iter_rows(values_only=True))
@@ -214,9 +219,7 @@ def leer_co_pdf(path):
     pattern = re.compile(
         r'^\s*(\d{1,2})\s+(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+p[çc°¢]\s+([\d\.]+,\d{3})'
     )
-
-    # FIX: material siempre viene precedido por "; " — excluye números DJO
-    mat_re = re.compile(r';\s*(\d{7,8})(?:\s|$)')
+    mat_re = re.compile(r'(?:;\s*)?(\d{7,8})\s*$')
 
     items = []
     for i, l in enumerate(full_lines):
@@ -258,7 +261,6 @@ def leer_co_pdf(path):
             if l.strip(): obs_lines.append(l.strip())
     obs = ' '.join(obs_lines).strip()
 
-    # fallback OCR si no se encontraron items
     if not items:
         try:
             from pdf2image import convert_from_bytes
