@@ -7,7 +7,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-NOTEBOOKLM_URL = "https://notebooklm.google.com/notebook/f410bdf4-992a-40e7-8f20-4ac2d7c8beec/preview"
+NOTEBOOKLM_URL = "https://notebooklm.google.com/notebook/f410bdf4-992a-40e7-8f20-4ac2d7c8beec"
 
 st.markdown("## 🧴 ANMAT — Cosméticos y Perfumes")
 st.markdown("Consultá normativa y procedimientos de ANMAT para importación de cosméticos y perfumes. Fuentes oficiales verificadas.")
