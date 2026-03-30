@@ -134,6 +134,13 @@ projects = [
         "desc": "Consultá normativa y procedimientos del Instituto Nacional de Alimentos (INAL) para importación de productos alimenticios. Fuentes oficiales verificadas.",
         "page": "pages/9_INAL_Normativa_Consultas.py"
     },
+    {
+        "icon": "🧴",
+        "name": "ANMAT — Cosméticos y Perfumes",
+        "tag": "Normativa",
+        "desc": "Consultá normativa y procedimientos de ANMAT para importación de cosméticos y perfumes. Fuentes oficiales verificadas.",
+        "page": "pages/10_ANMAT_Cosmeticos_Perfumes.py"
+    },
 ]
 
 coming_soon = [
