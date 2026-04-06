@@ -141,6 +141,13 @@ projects = [
         "desc": "Consultá normativa y procedimientos de ANMAT para importación de cosméticos y perfumes. Fuentes oficiales verificadas.",
         "page": "pages/10_ANMAT_Cosmeticos_Perfumes.py"
     },
+    {
+        "icon": "⛏️",
+        "name": "Ley Minera — Normativa y Consultas",
+        "tag": "Normativa",
+        "desc": "Consultá normativa sobre el Régimen de Inversiones Mineras (Ley 24.196), prestadores de servicios, comercio exterior minero y RIGI (Ley 27.742).",
+        "page": "pages/11_Ley_Minera_Normativa_Consultas.py"
+    },
 ]
 
 coming_soon = [
