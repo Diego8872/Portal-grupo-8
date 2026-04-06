@@ -109,6 +109,10 @@ section[data-testid="stFileUploadDropzone"] {
     width: 100%;
     font-weight: 500 !important;
 }
+
+[data-testid="stToolbar"] { visibility: hidden !important; }
+[data-testid="stDecoration"] { display: none !important; }
+a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -215,9 +219,6 @@ def leer_co_pdf(path):
         r'^\s*(\d{1,2})\s+(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+p[çc°¢]\s+([\d\.]+,\d{3})'
     )
 
-    # FIX: dos modos de capturar el material:
-    # 1) inline: "; 50XXXXXX" con o sin texto después (ej: fecha en misma línea)
-    # 2) línea sola: la línea anterior contiene ";" y esta línea es solo el número
     mat_re_inline   = re.compile(r';\s*(\d{7,8})(?:\s|$)')
     mat_re_nextline = re.compile(r'^\s*(\d{7,8})\s*$')
 
@@ -269,7 +270,6 @@ def leer_co_pdf(path):
             if l.strip(): obs_lines.append(l.strip())
     obs = ' '.join(obs_lines).strip()
 
-    # fallback OCR si no se encontraron items
     if not items:
         try:
             from pdf2image import convert_from_bytes
