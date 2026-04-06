@@ -1,5 +1,13 @@
 import streamlit as st
 
+st.markdown("""
+<style>
+[data-testid="stToolbar"] { visibility: hidden !important; }
+[data-testid="stDecoration"] { display: none !important; }
+a[href*="github.com"] { display: none !important; }
+</style>
+""", unsafe_allow_html=True)
+
 NOTEBOOK_URL = "https://notebooklm.google.com/notebook/8ded9948-1029-4468-a7b8-976e338ce13d"
 
 st.title("🍽️ INAL — Normativa y Consultas")
@@ -10,7 +18,6 @@ st.markdown(
     para la importación de productos alimenticios, en base a fuentes oficiales verificadas.
     """
 )
-
 st.markdown("### ¿Qué podés consultar?")
 col1, col2 = st.columns(2)
 with col1:
@@ -31,7 +38,6 @@ with col2:
         - 🔍 Notas externas DGA sobre INAL  
         """
     )
-
 st.markdown("---")
 st.info(
     "💡 **Tip:** Podés hacer preguntas concretas como: "
@@ -39,7 +45,6 @@ st.info(
     "*¿Qué productos no requieren intervención del INAL?*, "
     "*¿Cuáles son los plazos y aranceles del trámite?*"
 )
-
 st.markdown("### Acceder al asistente")
 st.markdown(
     """
@@ -53,6 +58,5 @@ st.link_button(
     use_container_width=True,
     type="primary",
 )
-
 st.markdown("---")
 st.caption("Fuentes: Disp. ANMAT 537/2025 · Disp. ANMAT 3280/2025 · Ley 18.284 · Ley 27.642 · CAA Cap. V · Notas Externas DGA · FAQ ANMAT/INAL")
