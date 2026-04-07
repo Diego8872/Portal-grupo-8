@@ -10,3 +10,5 @@ pytesseract
 pillow
 xlrd
 reportlab
+pdf2image
+xlutils
