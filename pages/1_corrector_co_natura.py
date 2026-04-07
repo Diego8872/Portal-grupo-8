@@ -1,6 +1,7 @@
 import streamlit as st
 import openpyxl, re, unicodedata, os, io
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from collections import defaultdict
 import pdfplumber
 
 st.markdown("""
@@ -215,8 +216,9 @@ def leer_co_pdf(path):
         m = re.search(r'[Dd]ata[:\s]+(\d{2}/\d{2}/\d{4})', l)
         if m and not data_co: data_co = m.group(1)
 
+    # FIX: acepta gr, kg, pc y variantes anteriores
     pattern = re.compile(
-        r'^\s*(\d{1,2})\s+(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+p[çc°¢]\s+([\d\.]+,\d{3})'
+        r'^\s*(\d{1,2})\s+(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+(?:gr|kg|pc|p[çc°¢])\s+([\d\.]+,\d{3})'
     )
 
     mat_re_inline   = re.compile(r';\s*(\d{7,8})(?:\s|$)')
@@ -251,7 +253,7 @@ def leer_co_pdf(path):
             mat = int(mm.group(1))
             if mat not in materiales_encontrados:
                 for back in range(i-1, max(i-60, -1), -1):
-                    m = re.search(r'(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+p[çc°¢]\s+([\d\.]+,\d{3})', full_lines[back])
+                    m = re.search(r'(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+(?:gr|kg|pc|p[çc°¢])\s+([\d\.]+,\d{3})', full_lines[back])
                     if m:
                         ncm, cant_str = m.group(1), m.group(2)
                         for it in items:
@@ -279,14 +281,14 @@ def leer_co_pdf(path):
             pages = convert_from_bytes(pdf_bytes, dpi=250)
             texts = [pytesseract.image_to_string(p, lang='eng') for p in pages]
             full_lines = '\n'.join(texts).split('\n')
-            pattern_ocr = re.compile(r'(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+p[¢cç°]\s+([\d\.]+,\d{3})', re.IGNORECASE)
+            pattern_ocr = re.compile(r'(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+(?:gr|kg|pc|p[¢cç°])\s+([\d\.]+,\d{3})', re.IGNORECASE)
             for i, l in enumerate(full_lines):
                 m = pattern_ocr.search(l)
                 if m:
                     ncm, cant_str, val_str = m.group(1), m.group(2), m.group(3)
                     material = None
                     for j in range(i, min(i+50, len(full_lines))):
-                        mm = mat_re.search(full_lines[j])
+                        mm = mat_re_inline.search(full_lines[j])
                         if mm: material = int(mm.group(1)); break
                     items.append({'orden': len(items)+1, 'ncm': ncm, 'cantidad': cant_str,
                                   'cantidad_num': parse_num(cant_str), 'valor': parse_num(val_str),
@@ -345,7 +347,22 @@ def generar_reporte(xl, fc_data, co, op_id):
     for col, w in zip('ABCDEFG', [18, 28, 32, 32, 16, 35, 10]):
         ws.column_dimensions[col].width = w
 
-    co_by_material = {ci['material']: ci for ci in co['items'] if ci['material']}
+    # FIX: lista por material para soportar duplicados (ej: 50241223 x2)
+    co_by_material = defaultdict(list)
+    for ci in co['items']:
+        if ci['material']:
+            co_by_material[ci['material']].append(ci)
+
+    # FIX: busca el mejor match tolerando conversión kg↔gr
+    def buscar_co_item(mat_int, cant_excel):
+        candidatos = co_by_material.get(mat_int, [])
+        if not candidatos: return None
+        for ci in candidatos:
+            cq = ci['cantidad_num']
+            if abs(cant_excel - cq) < 0.01: return ci
+            if abs(cant_excel * 1000 - cq) < 0.5: return ci
+            if abs(cant_excel / 1000 - cq) < 0.0001: return ci
+        return candidatos[0]
 
     row = 3
     style_section(ws, row, 'LÓGICA 1 — Excel (Solapa Item) vs PDF CO'); row += 1
@@ -354,16 +371,21 @@ def generar_reporte(xl, fc_data, co, op_id):
     row += 1
     for item in xl['items']:
         ref = item['MARCA_MODEL_OTRO']
-        co_item = co_by_material.get(int(ref)) if ref and str(ref).replace('.','').isdigit() else None
+        cant_exc = parse_num(str(item['CANTIDAD']))
+        co_item = buscar_co_item(int(ref), cant_exc) if ref and str(ref).replace('.','').isdigit() else None
         ncm_display = str(item['NCM'])[:10] if item['NCM'] else ''
         ncm_10 = ncm_display.replace('.','')
         if co_item:
-            res_ncm  = "✅ OK" if ncm_10 == co_item['ncm'].replace('.','') else "❌ DIFERENCIA"
-            cant_exc = float(str(item['CANTIDAD']).replace(',','.'))
-            res_cant = "✅ OK" if abs(cant_exc - co_item['cantidad_num']) < 0.01 else "❌ DIFERENCIA"
+            res_ncm = "✅ OK" if ncm_10 == co_item['ncm'].replace('.','') else "❌ DIFERENCIA"
+            cq = co_item['cantidad_num']
+            match_cant = (abs(cant_exc - cq) < 0.01 or
+                          abs(cant_exc * 1000 - cq) < 0.5 or
+                          abs(cant_exc / 1000 - cq) < 0.0001)
+            res_cant = "✅ OK" if match_cant else "❌ DIFERENCIA"
+            cant_excel_str = str(cant_exc) if cant_exc != int(cant_exc) else str(int(cant_exc))
             rows_data = [
                 (f"{item['ITEM']} / {ref}", 'NCM', ncm_display, co_item['ncm'], res_ncm, '10 primeros caracteres'),
-                ('', 'CANTIDAD', str(int(cant_exc)), co_item['cantidad'], res_cant, 'Decimales: coma en CO'),
+                ('', 'CANTIDAD', cant_excel_str, co_item['cantidad'], res_cant, 'Tolera conversión kg↔gr'),
             ]
         else:
             rows_data = [
