@@ -148,6 +148,13 @@ projects = [
         "desc": "Consultá normativa sobre el Régimen de Inversiones Mineras (Ley 24.196), prestadores de servicios, comercio exterior minero y RIGI (Ley 27.742).",
         "page": "pages/11_Ley_Minera_Normativa_Consultas.py"
     },
+    {
+        "icon": "📦",
+        "name": "Construcción de Lote",
+        "tag": "Importaciones",
+        "desc": "Generación automática de lotes CME y SIDOM desde facturas PDF. Soporta múltiples proveedores, clientes Natura y AESA, con lógica inteligente de marca, NCM y origen.",
+        "page": "pages/12_Construccion_Lote.py"
+    },
 ]
 
 coming_soon = [
