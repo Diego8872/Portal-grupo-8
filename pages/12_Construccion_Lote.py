@@ -293,7 +293,14 @@ def generar_excel_cme(items, nombre_lote):
     return buf
 
 def generar_excel_sidom(items, nombre_lote):
-    template_path = os.path.join(os.path.dirname(__file__), "Lote_SIDOM.xlsx")
+    posibles = [
+        os.path.join(os.path.dirname(__file__), "Lote_SIDOM.xlsx"),
+        os.path.join(os.path.dirname(__file__), "..", "Lote_SIDOM.xlsx"),
+        "Lote_SIDOM.xlsx",
+    ]
+    template_path = next((p for p in posibles if os.path.exists(p)), None)
+    if not template_path:
+        raise FileNotFoundError(f"No se encontró Lote_SIDOM.xlsx. Buscado en: {posibles}")
     wb = openpyxl.load_workbook(template_path); ws = wb.active
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
         for cell in row: cell.value = None
