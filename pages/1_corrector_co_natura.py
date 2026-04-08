@@ -1,8 +1,13 @@
 import streamlit as st
 import openpyxl, re, unicodedata, os, io
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from collections import defaultdict
 import pdfplumber
+
+st.set_page_config(
+    page_title="Corrector CO Natura",
+    page_icon="📋",
+    layout="centered"
+)
 
 st.markdown("""
 <style>
@@ -110,10 +115,6 @@ section[data-testid="stFileUploadDropzone"] {
     width: 100%;
     font-weight: 500 !important;
 }
-
-[data-testid="stToolbar"] { visibility: hidden !important; }
-[data-testid="stDecoration"] { display: none !important; }
-a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -211,12 +212,12 @@ def leer_co_pdf(path):
     for l in full_lines:
         ln = unicodedata.normalize('NFD', l)
         ln = ''.join(c for c in ln if unicodedata.category(c) != 'Mn')
-        m = re.search(r'[Nn]um[^\s:]*[:\s]+(\d{8,12})', ln)
+        m = re.search(r'[Nn]um[^\s:]*[:\s]+([A-Z]{0,5}\d{6,12})', ln)
         if m and not factura_num: factura_num = m.group(1)
         m = re.search(r'[Dd]ata[:\s]+(\d{2}/\d{2}/\d{4})', l)
         if m and not data_co: data_co = m.group(1)
 
-    # FIX: acepta gr, kg, pc y variantes anteriores
+    # FIX: acepta gr, kg, pc y variantes anteriores (p con caracteres especiales)
     pattern = re.compile(
         r'^\s*(\d{1,2})\s+(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+(?:gr|kg|pc|p[çc°¢])\s+([\d\.]+,\d{3})'
     )
@@ -272,6 +273,7 @@ def leer_co_pdf(path):
             if l.strip(): obs_lines.append(l.strip())
     obs = ' '.join(obs_lines).strip()
 
+    # fallback OCR si no se encontraron items
     if not items:
         try:
             from pdf2image import convert_from_bytes
@@ -347,21 +349,31 @@ def generar_reporte(xl, fc_data, co, op_id):
     for col, w in zip('ABCDEFG', [18, 28, 32, 32, 16, 35, 10]):
         ws.column_dimensions[col].width = w
 
-    # FIX: lista por material para soportar duplicados (ej: 50241223 x2)
+    # co_by_material como lista para soportar material duplicado (ej: 50241223 x2)
+    from collections import defaultdict
     co_by_material = defaultdict(list)
     for ci in co['items']:
         if ci['material']:
             co_by_material[ci['material']].append(ci)
 
-    # FIX: busca el mejor match tolerando conversión kg↔gr
+    # Para cada item del Excel, busca el mejor match en CO por cantidad
     def buscar_co_item(mat_int, cant_excel):
         candidatos = co_by_material.get(mat_int, [])
-        if not candidatos: return None
+        if not candidatos:
+            return None
+        # Intentar match exacto o con conversión gr↔kg
         for ci in candidatos:
             cq = ci['cantidad_num']
-            if abs(cant_excel - cq) < 0.01: return ci
-            if abs(cant_excel * 1000 - cq) < 0.5: return ci
-            if abs(cant_excel / 1000 - cq) < 0.0001: return ci
+            # Match directo
+            if abs(cant_excel - cq) < 0.01:
+                return ci
+            # Excel en kg, CO en gr
+            if abs(cant_excel * 1000 - cq) < 0.5:
+                return ci
+            # Excel en gr, CO en kg
+            if abs(cant_excel / 1000 - cq) < 0.0001:
+                return ci
+        # Si no hay match exacto, devolver el primero (para mostrar la diferencia)
         return candidatos[0]
 
     row = 3
@@ -376,8 +388,9 @@ def generar_reporte(xl, fc_data, co, op_id):
         ncm_display = str(item['NCM'])[:10] if item['NCM'] else ''
         ncm_10 = ncm_display.replace('.','')
         if co_item:
-            res_ncm = "✅ OK" if ncm_10 == co_item['ncm'].replace('.','') else "❌ DIFERENCIA"
+            res_ncm  = "✅ OK" if ncm_10 == co_item['ncm'].replace('.','') else "❌ DIFERENCIA"
             cq = co_item['cantidad_num']
+            # Comparar tolerando conversión gr↔kg
             match_cant = (abs(cant_exc - cq) < 0.01 or
                           abs(cant_exc * 1000 - cq) < 0.5 or
                           abs(cant_exc / 1000 - cq) < 0.0001)
