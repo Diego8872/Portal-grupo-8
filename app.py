@@ -152,7 +152,7 @@ projects = [
         "icon": "📦",
         "name": "Construcción de Lote",
         "tag": "Importaciones",
-        "desc": "Generación automática de lotes CME y SIDOM desde facturas PDF. Soporta múltiples proveedores, clientes Natura y AESA, con lógica inteligente de marca, NCM y origen.",
+        "desc": "Generación automática de lotes CME y SIDOM desde facturas PDF. Múltiples proveedores, con lógica de marca, NCM y origen según cliente.",
         "page": "pages/12_Construccion_Lote.py"
     },
 ]
