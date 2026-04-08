@@ -415,9 +415,11 @@ if st.session_state.paso >= 3:
                 todos_items = []; facturas_items = {}
                 for nombre_fac, pdf_bytes in st.session_state.facturas_data:
                     tipo_fac, items_raw, texto = extraer_items_pdf(pdf_bytes)
-                    if cfg["cliente"] == "AESA" and len(items_raw) == 0 and st.session_state.marcas_data:
+                    # AESA: siempre priorizar Excel de marcas (más confiable que Groq Vision)
+                    if cfg["cliente"] == "AESA" and st.session_state.marcas_data:
                         _, m_bytes = st.session_state.marcas_data
-                        items_raw = extraer_items_aesa_desde_excel(m_bytes); tipo_fac = "aesa_excel"
+                        items_excel = extraer_items_aesa_desde_excel(m_bytes)
+                        if items_excel: items_raw = items_excel; tipo_fac = "aesa_excel"
                     st.markdown(f'<div class="info-box">📄 {nombre_fac} → {len(items_raw)} ítems detectados (tipo: {tipo_fac})</div>', unsafe_allow_html=True)
                     if items_raw:
                         with st.expander(f"Ver ítems detectados ({len(items_raw)})"):
