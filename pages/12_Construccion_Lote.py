@@ -165,8 +165,11 @@ def extraer_items_wartsila(texto_pdf):
         if m1 and i+1 < len(lineas):
             m2 = pat_datos.match(lineas[i+1].strip())
             if m2:
-                codigo   = m2.group(1).strip()
-                desc     = m1.group(2).strip()
+                # línea 1: "000100 12V92F BATTERY" → grupo1=000100, grupo2="12V92F BATTERY"
+                # El Part no. es la primera palabra del grupo2, la descripción el resto
+                partes = m1.group(2).strip().split(None, 1)
+                codigo = partes[0]
+                desc   = partes[1] if len(partes) > 1 else partes[0]
                 cant     = limpiar_numero(m2.group(2))
                 unitario = limpiar_numero(m2.group(3))
                 total    = limpiar_numero(m2.group(4))
