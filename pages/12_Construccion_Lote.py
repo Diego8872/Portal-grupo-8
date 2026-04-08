@@ -218,7 +218,14 @@ def extraer_items_groq_vision(pdf_bytes):
         todos_items = []
         prompt = """Analizá esta factura comercial y extraé SOLO los ítems de la tabla de productos.
 Para cada ítem retorná un objeto JSON con estos campos exactos:
-- codigo, descripcion, cantidad, unidad (PC/KG/MT/G/L), peso_neto, unitario, total, origen
+- codigo: el código REFI CLI (ej: O__CAP01331691, F__BL_04294047). Si no hay columna REFI CLI, usá el part number o código de producto. NUNCA uses la descripción como código.
+- descripcion: descripción del producto
+- cantidad: número (columna QUANT o QTY)
+- unidad: unidad de medida (PC, KG, MT, G, L)
+- peso_neto: peso neto en KG
+- unitario: precio unitario
+- total: precio total
+- origen: país de origen (ej: BRASIL)
 Retorná ÚNICAMENTE un array JSON válido, sin markdown, sin texto adicional."""
         for img in images:
             buf = io.BytesIO()
@@ -415,11 +422,9 @@ if st.session_state.paso >= 3:
                 todos_items = []; facturas_items = {}
                 for nombre_fac, pdf_bytes in st.session_state.facturas_data:
                     tipo_fac, items_raw, texto = extraer_items_pdf(pdf_bytes)
-                    # AESA: siempre priorizar Excel de marcas (más confiable que Groq Vision)
-                    if cfg["cliente"] == "AESA" and st.session_state.marcas_data:
+                    if cfg["cliente"] == "AESA" and len(items_raw) == 0 and st.session_state.marcas_data:
                         _, m_bytes = st.session_state.marcas_data
-                        items_excel = extraer_items_aesa_desde_excel(m_bytes)
-                        if items_excel: items_raw = items_excel; tipo_fac = "aesa_excel"
+                        items_raw = extraer_items_aesa_desde_excel(m_bytes); tipo_fac = "aesa_excel"
                     st.markdown(f'<div class="info-box">📄 {nombre_fac} → {len(items_raw)} ítems detectados (tipo: {tipo_fac})</div>', unsafe_allow_html=True)
                     if items_raw:
                         with st.expander(f"Ver ítems detectados ({len(items_raw)})"):
