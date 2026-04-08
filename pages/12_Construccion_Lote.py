@@ -153,18 +153,36 @@ def extraer_items_hci(texto_pdf):
     return items
 
 def extraer_items_wartsila(texto_pdf):
+    # FIX: ítem partido en dos líneas
+    lineas = texto_pdf.split('\n')
+    pat_item   = re.compile(r'^(\d{6})\s+(.+)$')
+    pat_datos  = re.compile(r'^(\w+)\s+\w+\s+([\d.,]+)\s+PC\s+([\d.,]+)\s+\w+\s+[\d.,]+%\s+([\d.,]+)')
+    pat_origen = re.compile(r'^([A-Z]{2})\s+\d+\s+([\d.,]+)\s+KG')
     items = []
-    patron = re.compile(r'^(\d{6})\s+(\d+)\s+(.+?)\s+([A-Z]{2})\s+\d+\s+([\d.,]+)\s+PC\s+([\d.,]+)\s+[\d.,]+%\s+([\d.,]+)', re.IGNORECASE)
-    for l in texto_pdf.split('\n'):
-        m = patron.match(l.strip())
-        if m:
-            origen = get_codigo_pais(m.group(4).strip()) or 0
-            items.append({
-                "codigo": m.group(2).strip(), "descripcion": m.group(3).strip(),
-                "cantidad": limpiar_numero(m.group(5)), "unidad_cod": 7, "unidad_raw": "PC",
-                "peso_neto": 0, "unitario": limpiar_numero(m.group(6)), "total": limpiar_numero(m.group(7)),
-                "origen": origen, "procedencia": origen, "moneda": "EUR",
-            })
+    i = 0
+    while i < len(lineas):
+        m1 = pat_item.match(lineas[i].strip())
+        if m1 and i+1 < len(lineas):
+            m2 = pat_datos.match(lineas[i+1].strip())
+            if m2:
+                codigo   = m2.group(1).strip()
+                desc     = m1.group(2).strip()
+                cant     = limpiar_numero(m2.group(2))
+                unitario = limpiar_numero(m2.group(3))
+                total    = limpiar_numero(m2.group(4))
+                origen_iso = None; peso = 0.0
+                for j in range(i+2, min(i+5, len(lineas))):
+                    mo = pat_origen.match(lineas[j].strip())
+                    if mo: origen_iso = mo.group(1); peso = limpiar_numero(mo.group(2)); break
+                origen = get_codigo_pais(origen_iso) or 0
+                items.append({
+                    "codigo": codigo, "descripcion": desc,
+                    "cantidad": cant, "unidad_cod": 7, "unidad_raw": "PC",
+                    "peso_neto": peso, "unitario": unitario, "total": total,
+                    "origen": origen, "procedencia": origen, "moneda": "EUR",
+                })
+                i += 2; continue
+        i += 1
     return items
 
 def extraer_items_aesa_desde_excel(marcas_bytes):
