@@ -89,6 +89,9 @@ div[data-baseweb="select"] > div {
     color: #f0f0f0;
 }
 .stRadio label { color: #c0c0c0 !important; }
+[data-testid="stToolbar"] { visibility: hidden !important; }
+[data-testid="stDecoration"] { display: none !important; }
+a[href*="github.com"] { display: none !important; }
 .stRadio > div { color: #c0c0c0 !important; }
 
 /* Expander fondo oscuro */
