@@ -82,8 +82,11 @@ UNIDAD_SIDOM = {
 def get_codigo_pais(texto):
     if not texto: return None
     t = str(texto).strip().upper()
+    # Match exacto primero (para códigos ISO de 2 letras)
+    if t in PAISES: return PAISES[t]
+    # Match parcial para nombres completos
     for k, v in PAISES.items():
-        if k in t or t in k: return v
+        if len(k) > 2 and (k in t or t in k): return v
     return None
 
 def get_codigo_unidad(texto):
