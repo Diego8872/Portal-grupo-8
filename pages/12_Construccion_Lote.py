@@ -41,15 +41,17 @@ p, span, div { color: #c0c0c0; }
 
 PAISES = {
     "BRASIL": 203, "BRAZIL": 203, "ESTADOS UNIDOS": 212, "USA": 212, "UNITED STATES": 212, "US": 212,
-    "REINO UNIDO": 426, "UNITED KINGDOM": 426, "UK": 426, "GREAT BRITAIN": 426,
-    "ALEMANIA": 438, "GERMANY": 438, "DEUTSCHLAND": 438, "ITALIA": 417, "ITALY": 417, "AUSTRIA": 405,
-    "SUECIA": 429, "SWEDEN": 429, "NORUEGA": 422, "NORWAY": 422, "FINLANDIA": 411, "FINLAND": 411,
+    "REINO UNIDO": 426, "UNITED KINGDOM": 426, "UK": 426, "GB": 426, "GREAT BRITAIN": 426,
+    "ALEMANIA": 438, "GERMANY": 438, "DEUTSCHLAND": 438, "DE": 438,
+    "ITALIA": 417, "ITALY": 417, "IT": 417, "AUSTRIA": 405, "AT": 405,
+    "SUECIA": 429, "SWEDEN": 429, "SE": 429, "NORUEGA": 422, "NORWAY": 422, "NO": 422,
+    "FINLANDIA": 411, "FINLAND": 411, "FI": 411,
     "REPUBLICA CHECA": 451, "REP. CHECA": 451, "CZECH REPUBLIC": 451, "CZ": 451,
-    "TAIWAN": 313, "CHINA": 310, "VIETNAM": 337,
+    "TAIWAN": 313, "TW": 313, "CHINA": 310, "CN": 310, "VIETNAM": 337, "VN": 337,
     "COREA DEL SUR": 309, "SOUTH KOREA": 309, "KOREA": 309,
     "JAPON": 320, "JAPAN": 320, "INDIA": 315, "SUIZA": 430, "SWITZERLAND": 430,
     "PAISES BAJOS": 423, "NETHERLANDS": 423, "HOLLAND": 423,
-    "FRANCE": 412, "FRANCIA": 412, "ESPAÑA": 410, "SPAIN": 410, "BELGICA": 406, "BELGIUM": 406,
+    "FRANCE": 412, "FRANCIA": 412, "FR": 412, "ESPAÑA": 410, "SPAIN": 410, "ES": 410, "BELGICA": 406, "BELGIUM": 406, "BE": 406,
     "CANADA": 204, "MEXICO": 218, "MÉXICO": 218, "ARGENTINA": 200, "CHILE": 208,
     "PERU": 222, "PERÚ": 222, "COLOMBIA": 205, "SINGAPORE": 333, "SINGAPUR": 333,
     "MALAYSIA": 326, "MALASIA": 326, "INDONESIA": 316, "THAILAND": 335, "TAILANDIA": 335,
@@ -290,6 +292,18 @@ def leer_ncm(ncm_file_bytes, nombre_archivo):
             except: pass
         df = pd.read_excel(io.BytesIO(ncm_file_bytes), dtype=str)
         cols = df.columns.tolist()
+        # Detectar formato Wärtsilä: columnas PART NUMBER y PA
+        if "PART NUMBER" in cols and "PA" in cols:
+            result = {}
+            for _, row in df.iterrows():
+                pn = str(row.get("PART NUMBER","")).strip()
+                pa = str(row.get("PA","")).strip()
+                if pn and pa and pa != "nan":
+                    # Limpiar sufijo WARTSILA del part number
+                    pn_clean = re.sub(r'WARTSILA$', '', pn, flags=re.IGNORECASE).strip()
+                    result[pn_clean] = pa
+                    result[pn] = pa  # también con sufijo por si acaso
+            return result
         cod_col = next((c for c in cols if "art" in str(c).lower() or "cod" in str(c).lower()), cols[0])
         ncm_col = next((c for c in cols if "ncm" in str(c).lower()), cols[1])
         return dict(zip(df[cod_col].astype(str).str.strip(), df[ncm_col].astype(str).str.strip()))
