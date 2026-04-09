@@ -143,6 +143,28 @@ def leer_origenes_excel(file_bytes):
         st.warning(f"Error leyendo Excel de orígenes: {e}")
     return result
 
+
+def extraer_procedencia_pdf(texto):
+    """
+    Busca PAIS DE ORIGEN en toda la factura.
+    Retorna (codigo_pais, lista_de_candidatos).
+    Si hay más de uno único → el operador debe confirmar.
+    """
+    lineas = texto.split('\n')
+    candidatos = []
+    for i, l in enumerate(lineas):
+        if 'PAIS DE ORIGEN' in l.upper() or 'COUNTRY OF ORIGIN' in l.upper():
+            if i+1 < len(lineas):
+                for palabra in lineas[i+1].split():
+                    cod = get_codigo_pais(palabra)
+                    if cod and cod not in candidatos:
+                        candidatos.append(cod)
+    if len(candidatos) == 1:
+        return candidatos[0], []
+    elif len(candidatos) > 1:
+        return candidatos[0], candidatos  # primero como default, lista para alerta
+    return 203, []  # default Brasil
+
 def extraer_items_natura(texto_pdf):
     items = []
     patron = re.compile(
@@ -522,6 +544,14 @@ if st.session_state.paso >= 3:
                     if cfg["cliente"] == "AESA" and len(items_raw) == 0 and st.session_state.marcas_data:
                         _, m_bytes = st.session_state.marcas_data
                         items_raw = extraer_items_aesa_desde_excel(m_bytes); tipo_fac = "aesa_excel"
+                    # Extraer procedencia global del PDF (país del emisor)
+                    procedencia_global, procedencia_candidatos = extraer_procedencia_pdf(texto) if texto else (203, [])
+                    for item in items_raw:
+                        item["procedencia"] = procedencia_global
+                    if procedencia_candidatos:
+                        facturas_items.setdefault("_alertas_procedencia", []).append({
+                            "factura": nombre_fac, "candidatos": procedencia_candidatos, "items": items_raw
+                        })
 
                     st.markdown(f'<div class="info-box">📄 {nombre_fac} → {len(items_raw)} ítems detectados (tipo: {tipo_fac})</div>', unsafe_allow_html=True)
                     if items_raw:
@@ -540,7 +570,7 @@ if st.session_state.paso >= 3:
                             origen_cod = origenes_dict.get(cod)
                             if origen_cod:
                                 item["origen"] = origen_cod
-                                item["procedencia"] = origen_cod
+                                # procedencia ya viene seteada del PDF (país emisor)
                             else:
                                 item["origen"] = 0
                                 item["procedencia"] = 0
@@ -589,6 +619,7 @@ if st.session_state.paso >= 3:
             st.session_state.alertas_marca_global  = [i for fac in facturas_items.values() for i in fac["alertas_marca"]]
             st.session_state.alertas_usados_global = [i for fac in facturas_items.values() for i in fac["alertas_usados"]]
             st.session_state.alertas_origen_global = [i for fac in facturas_items.values() for i in fac["alertas_origen"]]
+            st.session_state.alertas_procedencia_global = facturas_items.get("_alertas_procedencia", [])
             st.session_state.paso = 4; st.rerun()
 
 # PASO 4
@@ -600,6 +631,20 @@ if st.session_state.paso >= 4:
 
     with st.expander("⚠️  VALIDACIÓN", expanded=True):
         hay_alertas = False
+
+        # Alertas de PROCEDENCIA (múltiples países emisores encontrados)
+        alertas_procedencia = st.session_state.get("alertas_procedencia_global", [])
+        if alertas_procedencia:
+            hay_alertas = True
+            opciones_pais = sorted(set(PAISES_INV.values()))
+            for ap in alertas_procedencia:
+                candidatos_nombres = [PAISES_INV.get(c, str(c)) for c in ap["candidatos"]]
+                st.markdown(f'<div class="alerta-box">⚠️ {ap["factura"]}: se encontraron múltiples países emisores: <b>{", ".join(candidatos_nombres)}</b> — confirmá la procedencia</div>', unsafe_allow_html=True)
+                pais_sel = st.selectbox("Procedencia correcta", candidatos_nombres, key=f"proc_sel_{ap['factura']}")
+                cod_proc = get_codigo_pais(pais_sel)
+                for item in ap["items"]:
+                    item["procedencia"] = cod_proc
+                    item["origen_nombre"] = PAISES_INV.get(item.get("origen"), str(item.get("origen","")))
 
         # Alertas de ORIGEN
         if alertas_origen:
@@ -613,7 +658,6 @@ if st.session_state.paso >= 4:
                     pais_sel = st.selectbox("Origen", opciones_pais, key=f"origen_sel_{item['codigo']}_{id(item)}")
                     cod_sel = get_codigo_pais(pais_sel)
                     item["origen"] = cod_sel
-                    item["procedencia"] = cod_sel
                     item["origen_nombre"] = pais_sel
 
         # Alertas de MARCA
