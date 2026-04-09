@@ -51,7 +51,8 @@ PAISES = {
     "COREA DEL SUR": 309, "SOUTH KOREA": 309, "KOREA": 309,
     "JAPON": 320, "JAPAN": 320, "INDIA": 315, "SUIZA": 430, "SWITZERLAND": 430,
     "PAISES BAJOS": 423, "NETHERLANDS": 423, "HOLLAND": 423,
-    "FRANCE": 412, "FRANCIA": 412, "FR": 412, "ESPAÑA": 410, "SPAIN": 410, "ES": 410, "BELGICA": 406, "BELGIUM": 406, "BE": 406,
+    "FRANCE": 412, "FRANCIA": 412, "FR": 412, "ESPAÑA": 410, "SPAIN": 410, "ES": 410,
+    "BELGICA": 406, "BELGIUM": 406, "BE": 406,
     "CANADA": 204, "MEXICO": 218, "MÉXICO": 218, "ARGENTINA": 200, "CHILE": 208,
     "PERU": 222, "PERÚ": 222, "COLOMBIA": 205, "SINGAPORE": 333, "SINGAPUR": 333,
     "MALAYSIA": 326, "MALASIA": 326, "INDONESIA": 316, "THAILAND": 335, "TAILANDIA": 335,
@@ -82,12 +83,23 @@ UNIDAD_SIDOM = {
 def get_codigo_pais(texto):
     if not texto: return None
     t = str(texto).strip().upper()
-    # Match exacto primero (para códigos ISO de 2 letras)
     if t in PAISES: return PAISES[t]
-    # Match parcial para nombres completos
     for k, v in PAISES.items():
         if len(k) > 2 and (k in t or t in k): return v
     return None
+
+def extraer_pais_texto(texto):
+    """Extrae solo el país de textos como 'Brasil: Natura', 'Brasil Natura', 'Brasil'"""
+    if not texto: return None
+    # Tomar todo antes de ':', ';', '-' o números
+    limpio = re.split(r'[:\;\-\d]', str(texto))[0].strip()
+    # Tomar la primera palabra que matchee como país
+    palabras = limpio.split()
+    for i in range(len(palabras), 0, -1):
+        candidato = ' '.join(palabras[:i])
+        cod = get_codigo_pais(candidato)
+        if cod: return cod
+    return get_codigo_pais(limpio)
 
 def get_codigo_unidad(texto):
     if not texto: return 7
@@ -103,13 +115,35 @@ def limpiar_numero(texto):
         return float(s)
     except: return 0.0
 
+def leer_origenes_excel(file_bytes):
+    """
+    Lee un Excel de orígenes buscando en todas las solapas
+    la columna de código (SKU/Material/Código/Artículo) y origen.
+    Retorna dict {codigo: codigo_pais}
+    """
+    result = {}
+    try:
+        xl = pd.ExcelFile(io.BytesIO(file_bytes))
+        for sheet in xl.sheet_names:
+            try:
+                df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet, dtype=str)
+                cols = df.columns.tolist()
+                orig_col = next((c for c in cols if any(x in str(c).upper() for x in ['ORIGEN','ORIGIN','PROCEDENCIA','PAIS','PAÍS'])), None)
+                cod_col  = next((c for c in cols if any(x in str(c).upper() for x in ['SKU','MATERIAL','COD','ARTICULO','CÓDIGO','CODIGO'])), None)
+                if orig_col and cod_col:
+                    for _, row in df.iterrows():
+                        cod = str(row.get(cod_col,"")).strip()
+                        orig = str(row.get(orig_col,"")).strip()
+                        if cod and orig and cod != "nan" and orig != "nan":
+                            codigo_pais = extraer_pais_texto(orig)
+                            if codigo_pais:
+                                result[cod] = codigo_pais
+            except: continue
+    except Exception as e:
+        st.warning(f"Error leyendo Excel de orígenes: {e}")
+    return result
+
 def extraer_items_natura(texto_pdf):
-    """
-    FIX: campo VENTA opcional con (?:\\d+\\s+)?
-    Soporta:
-      50293720 1.050,000 KG descripcion...     (sin VENTA)
-      50391678 118997 828 PC descripcion...    (con VENTA)
-    """
     items = []
     patron = re.compile(
         r'^(\d{5,8})\s+(?:\d+\s+)?([\d.,]+)\s+(KG|G|PC|MT|L|LT|M)\s+(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$',
@@ -158,7 +192,6 @@ def extraer_items_hci(texto_pdf):
     return items
 
 def extraer_items_wartsila(texto_pdf):
-    # FIX: ítem partido en dos líneas
     lineas = texto_pdf.split('\n')
     pat_item   = re.compile(r'^(\d{6})\s+(.+)$')
     pat_datos  = re.compile(r'^(\w+)\s+\w+\s+([\d.,]+)\s+PC\s+([\d.,]+)\s+\w+\s+[\d.,]+%\s+([\d.,]+)')
@@ -170,8 +203,6 @@ def extraer_items_wartsila(texto_pdf):
         if m1 and i+1 < len(lineas):
             m2 = pat_datos.match(lineas[i+1].strip())
             if m2:
-                # línea 1: "000100 12V92F BATTERY" → grupo1=000100, grupo2="12V92F BATTERY"
-                # El Part no. es la primera palabra del grupo2, la descripción el resto
                 partes = m1.group(2).strip().split(None, 1)
                 codigo = partes[0]
                 desc   = partes[1] if len(partes) > 1 else partes[0]
@@ -289,7 +320,6 @@ def leer_ncm(ncm_file_bytes, nombre_archivo):
             try:
                 df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name="Hoja1", dtype=str)
                 cols = df.columns.tolist()
-                # Formato Wärtsilä dentro de Hoja1
                 if "PART NUMBER" in cols and "PA" in cols:
                     result = {}
                     for _, row in df.iterrows():
@@ -306,17 +336,15 @@ def leer_ncm(ncm_file_bytes, nombre_archivo):
             except: pass
         df = pd.read_excel(io.BytesIO(ncm_file_bytes), dtype=str)
         cols = df.columns.tolist()
-        # Detectar formato Wärtsilä: columnas PART NUMBER y PA
         if "PART NUMBER" in cols and "PA" in cols:
             result = {}
             for _, row in df.iterrows():
                 pn = str(row.get("PART NUMBER","")).strip()
                 pa = str(row.get("PA","")).strip()
                 if pn and pa and pa != "nan":
-                    # Limpiar sufijo WARTSILA del part number
                     pn_clean = re.sub(r'WARTSILA$', '', pn, flags=re.IGNORECASE).strip()
                     result[pn_clean] = pa
-                    result[pn] = pa  # también con sufijo por si acaso
+                    result[pn] = pa
             return result
         cod_col = next((c for c in cols if "art" in str(c).lower() or "cod" in str(c).lower()), cols[0])
         ncm_col = next((c for c in cols if "ncm" in str(c).lower()), cols[1])
@@ -400,13 +428,21 @@ with st.expander("⚙️  CONFIGURACIÓN", expanded=(st.session_state.paso == 1)
         tipo_ref = None
         if sistema == "CME" and cliente == "Natura":
             st.markdown('<div class="paso-header">04 — Tipo de Referencia</div>', unsafe_allow_html=True)
-            tipo_ref = st.radio("Tipo de referencia", ["ARG", "Otro"], horizontal=True, key="tipo_ref")
+            # NUEVO: tres opciones para Natura
+            tipo_ref = st.radio(
+                "Tipo de referencia",
+                ["ARG", "Producto Terminado / Ind. e Comércio", "Otro"],
+                horizontal=False, key="tipo_ref"
+            )
         st.markdown('<div class="paso-header">05 — ¿Ítems Usados?</div>', unsafe_allow_html=True)
         tiene_usados = st.radio("¿Esta operación puede tener ítems usados?", ["No", "Sí"], horizontal=True, key="tiene_usados")
     if st.button("CONFIRMAR CONFIGURACIÓN →"):
         if not nro_ref: st.error("Ingresá el número de referencia")
         else:
-            st.session_state.config = {"nro_ref":nro_ref,"sistema":sistema,"cliente":cliente,"tipo_ref":tipo_ref,"tiene_usados":tiene_usados=="Sí"}
+            st.session_state.config = {
+                "nro_ref": nro_ref, "sistema": sistema, "cliente": cliente,
+                "tipo_ref": tipo_ref, "tiene_usados": tiene_usados == "Sí",
+            }
             st.session_state.paso = 2; st.rerun()
 
 # PASO 2
@@ -416,26 +452,45 @@ if st.session_state.paso >= 2:
         st.markdown(f'<div class="info-box">Sistema: <b>{cfg["sistema"]}</b> | Cliente: <b>{cfg["cliente"]}</b> | Referencia: <b>{cfg["nro_ref"]}</b></div>', unsafe_allow_html=True)
         facturas = st.file_uploader("Facturas PDF (una o más)", type=["pdf"], accept_multiple_files=True, key="facturas")
         ncm_file = st.file_uploader("Excel de NCMs", type=["xlsx", "xlsm", "xls"], key="ncm_file")
+
+        # Excel de orígenes según tipo_ref de Natura
+        origenes_file = None
+        if cfg["cliente"] == "Natura":
+            if cfg["tipo_ref"] == "ARG":
+                origenes_file = st.file_uploader("Excel de Orígenes (PKL)", type=["xlsx","xlsm","xls"], key="origenes_file")
+            elif cfg["tipo_ref"] == "Producto Terminado / Ind. e Comércio":
+                origenes_file = st.file_uploader("Excel de Orígenes (Próximas Importaciones)", type=["xlsx","xlsm","xls"], key="origenes_file")
+
         marcas_file = None
         if cfg["cliente"] == "AESA":
             marcas_file = st.file_uploader("Excel de Marcas (AESA - solapa Pos)", type=["xlsx", "xlsm", "xls"], key="marcas_file")
+
         modo_excel = "único"
         if facturas and len(facturas) > 1:
             st.markdown('<div class="paso-header">¿Cómo generar el Excel?</div>', unsafe_allow_html=True)
             modo_excel_sel = st.radio("Modo de generación", ["Un Excel por factura", "Un solo Excel con todas"], key="modo_excel")
             modo_excel = "por_factura" if "por factura" in modo_excel_sel else "único"
-        if facturas and ncm_file:
-            if cfg["cliente"] == "AESA" and not marcas_file:
-                st.warning("⚠️ Falta el Excel de Marcas para AESA")
-            elif st.button("PROCESAR FACTURAS →"):
-                st.session_state.paso = 3
-                st.session_state.config["modo_excel"] = modo_excel
-                st.session_state.facturas_data = [(f.name, f.read()) for f in facturas]
-                st.session_state.ncm_data = (ncm_file.name, ncm_file.read())
-                st.session_state.marcas_data = (marcas_file.name, marcas_file.read()) if marcas_file else None
-                st.rerun()
 
-# PASO 3 — FIX delay: placeholder.empty() antes del rerun
+        # Validar archivos obligatorios
+        necesita_origenes = cfg["cliente"] == "Natura" and cfg["tipo_ref"] in ["ARG", "Producto Terminado / Ind. e Comércio"]
+        listo = facturas and ncm_file
+        if necesita_origenes and not origenes_file:
+            st.warning("⚠️ Falta el Excel de Orígenes")
+            listo = False
+        if cfg["cliente"] == "AESA" and not marcas_file:
+            st.warning("⚠️ Falta el Excel de Marcas para AESA")
+            listo = False
+
+        if listo and st.button("PROCESAR FACTURAS →"):
+            st.session_state.paso = 3
+            st.session_state.config["modo_excel"] = modo_excel
+            st.session_state.facturas_data = [(f.name, f.read()) for f in facturas]
+            st.session_state.ncm_data = (ncm_file.name, ncm_file.read())
+            st.session_state.marcas_data = (marcas_file.name, marcas_file.read()) if marcas_file else None
+            st.session_state.origenes_data = (origenes_file.name, origenes_file.read()) if origenes_file else None
+            st.rerun()
+
+# PASO 3
 if st.session_state.paso >= 3:
     cfg = st.session_state.config
     with st.expander("⚙️  PROCESAMIENTO", expanded=(st.session_state.paso == 3)):
@@ -445,28 +500,57 @@ if st.session_state.paso >= 3:
                 ncm_nombre, ncm_bytes = st.session_state.ncm_data
                 ncm_dict = leer_ncm(ncm_bytes, ncm_nombre)
                 st.markdown(f'<div class="ok-box">✅ NCMs cargados: {len(ncm_dict)} registros</div>', unsafe_allow_html=True)
+
+                # Cargar orígenes si corresponde
+                origenes_dict = {}
+                if st.session_state.get("origenes_data"):
+                    _, orig_bytes = st.session_state.origenes_data
+                    origenes_dict = leer_origenes_excel(orig_bytes)
+                    st.markdown(f'<div class="ok-box">✅ Orígenes cargados: {len(origenes_dict)} registros</div>', unsafe_allow_html=True)
+
                 marcas_dict = {}
                 if st.session_state.marcas_data:
                     m_nombre, m_bytes = st.session_state.marcas_data
                     marcas_dict = leer_marcas_aesa(m_bytes)
                     st.markdown(f'<div class="ok-box">✅ Marcas cargadas: {len(marcas_dict)} registros</div>', unsafe_allow_html=True)
+
                 todos_items = []; facturas_items = {}
+                usar_origenes_excel = cfg["cliente"] == "Natura" and cfg["tipo_ref"] in ["ARG", "Producto Terminado / Ind. e Comércio"]
+
                 for nombre_fac, pdf_bytes in st.session_state.facturas_data:
                     tipo_fac, items_raw, texto = extraer_items_pdf(pdf_bytes)
                     if cfg["cliente"] == "AESA" and len(items_raw) == 0 and st.session_state.marcas_data:
                         _, m_bytes = st.session_state.marcas_data
                         items_raw = extraer_items_aesa_desde_excel(m_bytes); tipo_fac = "aesa_excel"
+
                     st.markdown(f'<div class="info-box">📄 {nombre_fac} → {len(items_raw)} ítems detectados (tipo: {tipo_fac})</div>', unsafe_allow_html=True)
                     if items_raw:
                         with st.expander(f"Ver ítems detectados ({len(items_raw)})"):
                             for it in items_raw:
                                 st.write(f"`{it.get('codigo')}` | {str(it.get('descripcion',''))[:50]} | cant: {it.get('cantidad')} | total: {it.get('total')}")
-                    items_enriquecidos = []; alertas_marca = []; alertas_usados = []
+
+                    items_enriquecidos = []; alertas_marca = []; alertas_usados = []; alertas_origen = []
+
                     for item in items_raw:
                         cod = item["codigo"]
                         item["ncm"] = ncm_dict.get(cod, "SIN NCM")
+
+                        # ── ORIGEN ──
+                        if usar_origenes_excel:
+                            origen_cod = origenes_dict.get(cod)
+                            if origen_cod:
+                                item["origen"] = origen_cod
+                                item["procedencia"] = origen_cod
+                            else:
+                                item["origen"] = 0
+                                item["procedencia"] = 0
+                                alertas_origen.append(item)
+                        # Si no usa Excel de orígenes, el origen viene de la factura (ya seteado)
+
+                        # ── MARCA ──
                         if cfg["cliente"] == "Natura":
-                            if cfg["tipo_ref"] == "ARG": item["marca"] = "sin marca"
+                            if cfg["tipo_ref"] == "ARG":
+                                item["marca"] = "sin marca"
                             else:
                                 desc = item["descripcion"].lower()
                                 if "natura" in desc: item["marca"] = "natura"
@@ -479,33 +563,60 @@ if st.session_state.paso >= 3:
                             item["marca_modelo_otro"] = ""
                         else:
                             item["marca"] = ""; item["marca_modelo_otro"] = ""
+
+                        # ── ESTADO ──
                         item["estado"] = "2 - NUEVO SIN USO IMPORTADO"
                         if cfg["tiene_usados"]:
                             desc_lower = item["descripcion"].lower()
                             if any(p in desc_lower for p in ["used","usad","reman","recondition","rebuilt","gebraucht"]):
                                 item["estado"] = "4 - USADO IMPORTADO, INCL. REACOND"; alertas_usados.append(item)
+
                         item["origen_nombre"] = PAISES_INV.get(item.get("origen"), str(item.get("origen","")))
                         items_enriquecidos.append(item)
-                    facturas_items[nombre_fac] = {"items":items_enriquecidos,"alertas_marca":alertas_marca,"alertas_usados":alertas_usados}
+
+                    facturas_items[nombre_fac] = {
+                        "items": items_enriquecidos,
+                        "alertas_marca": alertas_marca,
+                        "alertas_usados": alertas_usados,
+                        "alertas_origen": alertas_origen,
+                    }
                     todos_items.extend(items_enriquecidos)
 
-            # FIX: limpiar antes del rerun para evitar flash
             placeholder.empty()
 
             st.session_state.todos_items = todos_items
             st.session_state.facturas_items = facturas_items
             st.session_state.alertas_marca_global  = [i for fac in facturas_items.values() for i in fac["alertas_marca"]]
             st.session_state.alertas_usados_global = [i for fac in facturas_items.values() for i in fac["alertas_usados"]]
-            st.session_state.paso = 4
-            st.rerun()
+            st.session_state.alertas_origen_global = [i for fac in facturas_items.values() for i in fac["alertas_origen"]]
+            st.session_state.paso = 4; st.rerun()
 
 # PASO 4
 if st.session_state.paso >= 4:
     cfg = st.session_state.config
     alertas_marca  = st.session_state.get("alertas_marca_global",[])
     alertas_usados = st.session_state.get("alertas_usados_global",[])
+    alertas_origen = st.session_state.get("alertas_origen_global",[])
+
     with st.expander("⚠️  VALIDACIÓN", expanded=True):
         hay_alertas = False
+
+        # Alertas de ORIGEN
+        if alertas_origen:
+            hay_alertas = True
+            st.markdown(f'<div class="alerta-box">⚠️ {len(alertas_origen)} ítems sin origen — completar antes de generar</div>', unsafe_allow_html=True)
+            opciones_pais = sorted(set(PAISES_INV.values()))
+            for item in alertas_origen:
+                col1, col2 = st.columns([3,1])
+                with col1: st.markdown(f'`{item["codigo"]}` — {item["descripcion"][:80]}')
+                with col2:
+                    pais_sel = st.selectbox("Origen", opciones_pais, key=f"origen_sel_{item['codigo']}_{id(item)}")
+                    cod_sel = get_codigo_pais(pais_sel)
+                    item["origen"] = cod_sel
+                    item["procedencia"] = cod_sel
+                    item["origen_nombre"] = pais_sel
+
+        # Alertas de MARCA
         if alertas_marca:
             hay_alertas = True
             st.markdown(f'<div class="alerta-box">⚠️ {len(alertas_marca)} ítems sin marca detectada — completar antes de generar</div>', unsafe_allow_html=True)
@@ -516,6 +627,8 @@ if st.session_state.paso >= 4:
                     opciones = ["natura","avon","sin marca"] if cfg["cliente"]=="Natura" else ["SIN MARCA"]
                     item["marca"] = st.selectbox("Marca", opciones, key=f"marca_sel_{item['codigo']}_{id(item)}")
                     if cfg["cliente"]=="Natura": item["marca_modelo_otro"] = item["codigo"]
+
+        # Alertas de USADOS
         if alertas_usados:
             hay_alertas = True
             st.markdown(f'<div class="alerta-box">⚠️ {len(alertas_usados)} ítems detectados como posiblemente USADOS</div>', unsafe_allow_html=True)
@@ -525,16 +638,18 @@ if st.session_state.paso >= 4:
                 with col2:
                     item["estado"] = st.radio("Estado", ["2 - NUEVO SIN USO IMPORTADO","4 - USADO IMPORTADO, INCL. REACOND"],
                                               key=f"estado_sel_{item['codigo']}_{id(item)}", horizontal=False)
+
         if cfg["tiene_usados"]:
             st.markdown("---")
-            st.markdown("**¿Hay algún ítem adicional que sea USADO y no fue detectado?**")
             todos_codigos = [it["codigo"] for it in st.session_state.todos_items]
-            usados_extra = st.multiselect("Seleccionar ítems usados adicionales", options=todos_codigos, key="usados_extra")
+            usados_extra = st.multiselect("Ítems usados adicionales", options=todos_codigos, key="usados_extra")
             for cod in usados_extra:
                 for item in st.session_state.todos_items:
                     if item["codigo"] == cod: item["estado"] = "4 - USADO IMPORTADO, INCL. REACOND"
+
         if not hay_alertas:
             st.markdown('<div class="ok-box">✅ Sin alertas — todo listo para generar</div>', unsafe_allow_html=True)
+
         if st.button("GENERAR EXCEL →"):
             st.session_state.paso = 5; st.rerun()
 
