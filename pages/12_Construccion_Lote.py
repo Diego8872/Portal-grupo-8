@@ -289,6 +289,17 @@ def leer_ncm(ncm_file_bytes, nombre_archivo):
             try:
                 df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name="Hoja1", dtype=str)
                 cols = df.columns.tolist()
+                # Formato Wärtsilä dentro de Hoja1
+                if "PART NUMBER" in cols and "PA" in cols:
+                    result = {}
+                    for _, row in df.iterrows():
+                        pn = str(row.get("PART NUMBER","")).strip()
+                        pa = str(row.get("PA","")).strip()
+                        if pn and pa and pa != "nan":
+                            pn_clean = re.sub(r'WARTSILA$', '', pn, flags=re.IGNORECASE).strip()
+                            result[pn_clean] = pa
+                            result[pn] = pa
+                    return result
                 cod_col = next((c for c in cols if "art" in c.lower() or "cod" in c.lower() or "material" in c.lower()), cols[0])
                 ncm_col = next((c for c in cols if "ncm" in c.lower()), cols[1])
                 return dict(zip(df[cod_col].str.strip(), df[ncm_col].str.strip()))
