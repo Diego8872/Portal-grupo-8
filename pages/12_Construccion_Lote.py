@@ -146,7 +146,7 @@ def leer_origenes_excel(file_bytes):
 def extraer_items_natura(texto_pdf):
     items = []
     patron = re.compile(
-        r'^(\d{5,8})\s+(?:\d+\s+)?([\d.,]+)\s+(KG|G|PC|MT|L|LT|M)\s+(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$',
+        r'^(\d{5,8})\s+(?:\S+\s+)?([\d.,]+)\s+(KG|G|PC|MT|L|LT|M)\s+(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$',
         re.IGNORECASE
     )
     skip = ["NCM","NALADI","VOLUMES","Pallet","TOTAL","PESO NETO","PESO BRUTO",
@@ -450,16 +450,16 @@ if st.session_state.paso >= 2:
     cfg = st.session_state.config
     with st.expander("📁  ARCHIVOS", expanded=(st.session_state.paso == 2)):
         st.markdown(f'<div class="info-box">Sistema: <b>{cfg["sistema"]}</b> | Cliente: <b>{cfg["cliente"]}</b> | Referencia: <b>{cfg["nro_ref"]}</b></div>', unsafe_allow_html=True)
-        facturas = st.file_uploader("Facturas PDF (una o más)", type=["pdf"], accept_multiple_files=True, key="facturas")
-        ncm_file = st.file_uploader("Excel de NCMs", type=["xlsx", "xlsm", "xls"], key="ncm_file")
+        facturas = st.file_uploader("Factura (PDF)", type=["pdf"], accept_multiple_files=True, key="facturas")
+        ncm_file = st.file_uploader("Excel Clasificación (NCMs)", type=["xlsx", "xlsm", "xls"], key="ncm_file")
 
         # Excel de orígenes según tipo_ref de Natura
         origenes_file = None
         if cfg["cliente"] == "Natura":
             if cfg["tipo_ref"] == "ARG":
-                origenes_file = st.file_uploader("Excel de Orígenes (PKL)", type=["xlsx","xlsm","xls"], key="origenes_file")
+                origenes_file = st.file_uploader("Excel Origen (PKL)", type=["xlsx","xlsm","xls"], key="origenes_file")
             elif cfg["tipo_ref"] == "Producto Terminado / Ind. e Comércio":
-                origenes_file = st.file_uploader("Excel de Orígenes (Próximas Importaciones)", type=["xlsx","xlsm","xls"], key="origenes_file")
+                origenes_file = st.file_uploader("Excel Origen (Próximas Importaciones)", type=["xlsx","xlsm","xls"], key="origenes_file")
 
         marcas_file = None
         if cfg["cliente"] == "AESA":
