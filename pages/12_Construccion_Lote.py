@@ -479,9 +479,9 @@ if st.session_state.paso >= 2:
         origenes_file = None
         if cfg["cliente"] == "Natura":
             if cfg["tipo_ref"] == "ARG":
-                origenes_file = st.file_uploader("Excel Origen (PKL)", type=["xlsx","xlsm","xls"], key="origenes_file")
+                origenes_file = st.file_uploader("Excel Origen", type=["xlsx","xlsm","xls"], key="origenes_file")
             elif cfg["tipo_ref"] == "Producto Terminado / Ind. e Comércio":
-                origenes_file = st.file_uploader("Excel Origen (Próximas Importaciones)", type=["xlsx","xlsm","xls"], key="origenes_file")
+                origenes_file = st.file_uploader("Excel Origen", type=["xlsx","xlsm","xls"], key="origenes_file")
 
         marcas_file = None
         if cfg["cliente"] == "AESA":
