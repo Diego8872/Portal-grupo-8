@@ -246,6 +246,112 @@ def extraer_items_wartsila(texto_pdf):
         i += 1
     return items
 
+
+def extraer_items_ashland(texto_pdf):
+    """
+    Parser para facturas Ashland.
+    Línea ítem: "50.000 KG 961324 AQUAFLEX XL-30 - 5.00 BATCH 50.000 KG 25,5100 1.275,50"
+    Código a usar: R-code que aparece en la descripción (ej: R026849)
+    """
+    lineas = texto_pdf.split('\n')
+    pat = re.compile(r'^([\d.]+)\s+KG\s+(\d+)\s+(.+?)\s+\S+\s+[\d.,]+\s+KG\s+([\d.,]+)\s+([\d.,]+)\s*$')
+    pat_rcode = re.compile(r'^(R\d+)\s*$')
+    items = []
+    i = 0
+    while i < len(lineas):
+        l = lineas[i].strip()
+        m = pat.match(l)
+        if m:
+            # cantidad: formato europeo con punto como miles (50.000 = 50)
+            cant_str = m.group(1)
+            # formato europeo: "50.000" = 50 KG (punto = miles, dividir por 1000)
+            if '.' in cant_str and len(cant_str.split('.')[-1]) == 3:
+                cant = float(cant_str.replace('.','')) / 1000
+            else:
+                cant = float(cant_str.replace(',','.'))
+            desc = m.group(3).strip()
+            unitario = limpiar_numero(m.group(4))
+            total = limpiar_numero(m.group(5))
+            rcode = origen_iso = ncm_pdf = procedencia_iso = None
+            for j in range(i+1, min(i+12, len(lineas))):
+                lj = lineas[j].strip()
+                mr = pat_rcode.match(lj)
+                if mr: rcode = mr.group(1)
+                elif 'Country of origin' in lj:
+                    origen_texto = lj.split('-')[-1].strip()
+                    origen_iso = get_codigo_pais(origen_texto) or 0
+                elif 'Provenance' in lj:
+                    proc_texto = lj.split(':')[-1].strip()
+                    procedencia_iso = get_codigo_pais(proc_texto) or 203
+                elif re.match(r'^Total Net', lj): break
+            codigo = rcode if rcode else m.group(2)
+            items.append({
+                "codigo": codigo, "descripcion": desc,
+                "cantidad": cant, "unidad_cod": 1, "unidad_raw": "KG",
+                "peso_neto": cant, "unitario": unitario, "total": total,
+                "origen": origen_iso or 0, "procedencia": procedencia_iso or 203, "moneda": "USD",
+            })
+            i += 1; continue
+        i += 1
+    return items
+
+
+def extraer_items_natura_otros(textos_pdf, ncm_dict):
+    """
+    Para Natura + Otros: el Excel de clasi es el driver.
+    Busca cada código del Excel en los PDFs y extrae cantidad/precio/origen.
+    Retorna (items, alertas_no_encontrados)
+    """
+    # Juntar todos los textos
+    texto_total = '\n'.join(textos_pdf)
+    lineas = texto_total.split('\n')
+
+    pat_item   = re.compile(r'^([\d.]+)\s+KG\s+\d+\s+.+?\s+\S+\s+[\d.,]+\s+KG\s+([\d.,]+)\s+([\d.,]+)\s*$')
+    pat_rcode  = re.compile(r'^(R\d+)\s*$')
+
+    items = []
+    alertas = []
+
+    for cod, ncm in ncm_dict.items():
+        if not cod or cod == 'nan': continue
+        encontrado = False
+        for i, l in enumerate(lineas):
+            mr = pat_rcode.match(l.strip())
+            if mr and mr.group(1) == cod:
+                # Buscar línea de ítem hacia atrás
+                for j in range(i-1, max(i-10,-1), -1):
+                    m = pat_item.match(lineas[j].strip())
+                    if m:
+                        cant_s = m.group(1)
+                        if '.' in cant_s and len(cant_s.split('.')[-1]) == 3:
+                            cant = float(cant_s.replace('.','')) / 1000
+                        else:
+                            cant = limpiar_numero(cant_s)
+                        unitario = limpiar_numero(m.group(2))
+                        total    = limpiar_numero(m.group(3))
+                        # Buscar descripción (parte del texto del ítem)
+                        desc = lineas[j].strip()
+                        # Origen y procedencia
+                        origen = procedencia = None
+                        for k in range(j+1, i+1):
+                            lk = lineas[k].strip()
+                            if 'Country of origin' in lk: origen = get_codigo_pais(lk.split('-')[-1].strip())
+                            elif 'Provenance' in lk: procedencia = get_codigo_pais(lk.split(':')[-1].strip())
+                        items.append({
+                            "codigo": cod, "descripcion": desc[:60],
+                            "cantidad": cant, "unidad_cod": 1, "unidad_raw": "KG",
+                            "peso_neto": cant, "unitario": unitario, "total": total,
+                            "origen": origen or 0, "procedencia": procedencia or 203,
+                            "moneda": "USD", "ncm": ncm,
+                        })
+                        encontrado = True
+                        break
+            if encontrado: break
+        if not encontrado:
+            alertas.append(cod)
+
+    return items, alertas
+
 def extraer_items_aesa_desde_excel(marcas_bytes):
     items = []
     try:
@@ -325,6 +431,8 @@ def extraer_items_pdf(pdf_bytes, proveedor_detectado=None):
         return "escaneado_vision", extraer_items_groq_vision(pdf_bytes), ""
     if "REFI CLI" in texto or "HCI" in texto.upper():
         return "hci", extraer_items_hci(texto), texto
+    elif "Ashland" in texto or "ASHLAND" in texto:
+        return "ashland", extraer_items_ashland(texto), texto
     elif "Wärtsilä" in texto or "Wartsila" in texto:
         return "wartsila", extraer_items_wartsila(texto), texto
     elif "MATERIAL" in texto and "VENTA" in texto and "CANTIDAD" in texto and "Natura" in texto:
@@ -355,6 +463,15 @@ def leer_ncm(ncm_file_bytes, nombre_archivo):
                 cod_col = next((c for c in cols if "art" in c.lower() or "cod" in c.lower() or "material" in c.lower()), cols[0])
                 ncm_col = next((c for c in cols if "ncm" in c.lower()), cols[1])
                 return dict(zip(df[cod_col].str.strip(), df[ncm_col].str.strip()))
+            except: pass
+            # Formato Clasi (Ashland): header en fila 2
+            try:
+                df = pd.read_excel(io.BytesIO(ncm_file_bytes), dtype=str, header=2)
+                cols = df.columns.tolist()
+                cod_col = next((c for c in cols if "art" in str(c).lower() or "cod" in str(c).lower()), None)
+                ncm_col = next((c for c in cols if "ncm" in str(c).lower()), None)
+                if cod_col and ncm_col:
+                    return dict(zip(df[cod_col].astype(str).str.strip(), df[ncm_col].astype(str).str.strip()))
             except: pass
         df = pd.read_excel(io.BytesIO(ncm_file_bytes), dtype=str)
         cols = df.columns.tolist()
@@ -538,20 +655,42 @@ if st.session_state.paso >= 3:
 
                 todos_items = []; facturas_items = {}
                 usar_origenes_excel = cfg["cliente"] == "Natura" and cfg["tipo_ref"] in ["ARG", "Producto Terminado / Ind. e Comércio"]
+                natura_otros = cfg["cliente"] == "Natura" and cfg["tipo_ref"] == "Otro"
 
-                for nombre_fac, pdf_bytes in st.session_state.facturas_data:
-                    tipo_fac, items_raw, texto = extraer_items_pdf(pdf_bytes)
-                    if cfg["cliente"] == "AESA" and len(items_raw) == 0 and st.session_state.marcas_data:
-                        _, m_bytes = st.session_state.marcas_data
-                        items_raw = extraer_items_aesa_desde_excel(m_bytes); tipo_fac = "aesa_excel"
-                    # Extraer procedencia global del PDF (país del emisor)
-                    procedencia_global, procedencia_candidatos = extraer_procedencia_pdf(texto) if texto else (203, [])
-                    for item in items_raw:
-                        item["procedencia"] = procedencia_global
-                    if procedencia_candidatos:
-                        facturas_items.setdefault("_alertas_procedencia", []).append({
-                            "factura": nombre_fac, "candidatos": procedencia_candidatos, "items": items_raw
-                        })
+                # Para Natura+Otros: lógica Excel-driven (todos los PDFs juntos)
+                if natura_otros:
+                    textos_pdf = []
+                    for nombre_fac, pdf_bytes in st.session_state.facturas_data:
+                        texto = extraer_texto_pdf(pdf_bytes)
+                        textos_pdf.append(texto)
+                    items_otros, alertas_otros = extraer_items_natura_otros(textos_pdf, ncm_dict)
+                    st.markdown(f'<div class="info-box">📄 {len(st.session_state.facturas_data)} factura(s) → {len(items_otros)} ítems detectados (tipo: natura_otros)</div>', unsafe_allow_html=True)
+                    if alertas_otros:
+                        st.markdown(f'<div class="alerta-box">⚠️ {len(alertas_otros)} códigos del Excel no encontrados en las facturas: {", ".join(alertas_otros)}</div>', unsafe_allow_html=True)
+                    # Enriquecer items (marca, estado, origen_nombre)
+                    items_enriquecidos = []
+                    for item in items_otros:
+                        item["marca"] = "sin marca"
+                        item["marca_modelo_otro"] = item["codigo"]
+                        item["estado"] = "2 - NUEVO SIN USO IMPORTADO"
+                        item["origen_nombre"] = PAISES_INV.get(item.get("origen"), str(item.get("origen","")))
+                        items_enriquecidos.append(item)
+                    facturas_items["todas"] = {"items": items_enriquecidos, "alertas_marca": [], "alertas_usados": [], "alertas_origen": []}
+                    todos_items = items_enriquecidos
+                else:
+                    for nombre_fac, pdf_bytes in st.session_state.facturas_data:
+                        tipo_fac, items_raw, texto = extraer_items_pdf(pdf_bytes)
+                        if cfg["cliente"] == "AESA" and len(items_raw) == 0 and st.session_state.marcas_data:
+                            _, m_bytes = st.session_state.marcas_data
+                            items_raw = extraer_items_aesa_desde_excel(m_bytes); tipo_fac = "aesa_excel"
+                        # Extraer procedencia global del PDF (país del emisor)
+                        procedencia_global, procedencia_candidatos = extraer_procedencia_pdf(texto) if texto else (203, [])
+                        for item in items_raw:
+                            item["procedencia"] = procedencia_global
+                        if procedencia_candidatos:
+                            facturas_items.setdefault("_alertas_procedencia", []).append({
+                                "factura": nombre_fac, "candidatos": procedencia_candidatos, "items": items_raw
+                            })
 
                     st.markdown(f'<div class="info-box">📄 {nombre_fac} → {len(items_raw)} ítems detectados (tipo: {tipo_fac})</div>', unsafe_allow_html=True)
                     if items_raw:
@@ -611,6 +750,7 @@ if st.session_state.paso >= 3:
                         "alertas_origen": alertas_origen,
                     }
                     todos_items.extend(items_enriquecidos)
+                # fin else
 
             placeholder.empty()
 
