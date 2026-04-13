@@ -298,59 +298,79 @@ def extraer_items_ashland(texto_pdf):
 
 def extraer_items_natura_otros(textos_pdf, ncm_dict):
     """
-    Para Natura + Otros: el Excel de clasi es el driver.
-    Busca cada código del Excel en los PDFs y extrae cantidad/precio/origen.
-    Retorna (items, alertas_no_encontrados)
+    Para Natura + Otros (Ashland): parsea ítems de cada factura en orden.
+    Códigos: inline COD: tiene prioridad, sino toma del bloque al final en orden.
+    Retorna (items, alertas_sin_ncm)
     """
-    # Juntar todos los textos
-    texto_total = '\n'.join(textos_pdf)
-    lineas = texto_total.split('\n')
+    pat_item  = re.compile(r'^([\d.,]+)\s+(?:KG|DR|CAN|PL)\s+\d+\s+(.+?)\s+\S+\s+([\d.,]+)\s+KG\s+([\d.,]+)\s+([\d.,]+)\s*$')
+    pat_cod   = re.compile(r'C[OÓ]D[.:\s]+(\S+)', re.IGNORECASE)
+    pat_rcode = re.compile(r'^(R\d+|\d{4})$')
+    pat_orden = re.compile(r'^O\s*R\s*D\s*E\s*N')
 
-    pat_item   = re.compile(r'^([\d.]+)\s+KG\s+\d+\s+.+?\s+\S+\s+[\d.,]+\s+KG\s+([\d.,]+)\s+([\d.,]+)\s*$')
-    pat_rcode  = re.compile(r'^(R\d+)\s*$')
-
-    items = []
+    all_items = []
     alertas = []
 
-    for cod, ncm in ncm_dict.items():
-        if not cod or cod == 'nan': continue
-        encontrado = False
-        for i, l in enumerate(lineas):
-            mr = pat_rcode.match(l.strip())
-            if mr and mr.group(1) == cod:
-                # Buscar línea de ítem hacia atrás
-                for j in range(i-1, max(i-10,-1), -1):
-                    m = pat_item.match(lineas[j].strip())
-                    if m:
-                        cant_s = m.group(1)
-                        if '.' in cant_s and len(cant_s.split('.')[-1]) == 3:
-                            cant = float(cant_s.replace('.','')) / 1000
-                        else:
-                            cant = limpiar_numero(cant_s)
-                        unitario = limpiar_numero(m.group(2))
-                        total    = limpiar_numero(m.group(3))
-                        # Buscar descripción (parte del texto del ítem)
-                        desc = lineas[j].strip()
-                        # Origen y procedencia
-                        origen = procedencia = None
-                        for k in range(j+1, i+1):
-                            lk = lineas[k].strip()
-                            if 'Country of origin' in lk: origen = get_codigo_pais(lk.split('-')[-1].strip())
-                            elif 'Provenance' in lk: procedencia = get_codigo_pais(lk.split(':')[-1].strip())
-                        items.append({
-                            "codigo": cod, "descripcion": desc[:60],
-                            "cantidad": cant, "unidad_cod": 1, "unidad_raw": "KG",
-                            "peso_neto": cant, "unitario": unitario, "total": total,
-                            "origen": origen or 0, "procedencia": procedencia or 203,
-                            "moneda": "USD", "ncm": ncm,
-                        })
-                        encontrado = True
-                        break
-            if encontrado: break
-        if not encontrado:
-            alertas.append(cod)
+    for texto in textos_pdf:
+        lineas = texto.split('\n')
 
-    return items, alertas
+        # 1. Parsear ítems en orden
+        items_fac = []
+        i = 0
+        while i < len(lineas):
+            m = pat_item.match(lineas[i].strip())
+            if m:
+                peso_s = m.group(3)
+                if '.' in peso_s and len(peso_s.split('.')[-1]) == 3:
+                    peso = float(peso_s.replace('.','')) / 1000
+                else:
+                    peso = limpiar_numero(peso_s)
+                origen = procedencia = cod_inline = None
+                for j in range(i+1, min(i+8, len(lineas))):
+                    lj = lineas[j].strip()
+                    if pat_item.match(lj): break
+                    if 'Country of origin' in lj: origen = get_codigo_pais(lj.split('-')[-1].strip())
+                    elif 'Provenance' in lj: procedencia = get_codigo_pais(lj.split(':')[-1].strip())
+                    mc = pat_cod.search(lj)
+                    if mc and not cod_inline: cod_inline = mc.group(1).strip()
+                items_fac.append({
+                    'desc': m.group(2).strip()[:60],
+                    'cant': peso,
+                    'unit': limpiar_numero(m.group(4)),
+                    'total': limpiar_numero(m.group(5)),
+                    'origen': origen,
+                    'proc': procedencia,
+                    'cod': cod_inline,
+                })
+            i += 1
+
+        # 2. Bloque de códigos al final (después de ORDEN DE COMPRA)
+        codigos_bloque = []
+        for i, l in enumerate(lineas):
+            if pat_orden.match(l.strip()):
+                for j in range(i+1, min(i+15, len(lineas))):
+                    lj = lineas[j].strip()
+                    if 'Total Net' in lj or 'Base(USD)' in lj: break
+                    mc = pat_cod.search(lj)
+                    if mc: codigos_bloque.append(mc.group(1).strip())
+                    elif pat_rcode.match(lj): codigos_bloque.append(lj)
+
+        # 3. Asignar: inline primero, sino del bloque en orden
+        idx_bloque = 0
+        for item in items_fac:
+            if not item['cod'] and codigos_bloque and idx_bloque < len(codigos_bloque):
+                item['cod'] = codigos_bloque[idx_bloque]
+                idx_bloque += 1
+            ncm = ncm_dict.get(item['cod'], 'SIN NCM')
+            if ncm == 'SIN NCM': alertas.append(str(item['cod']))
+            all_items.append({
+                "codigo": item['cod'], "descripcion": item['desc'],
+                "cantidad": item['cant'], "unidad_cod": 1, "unidad_raw": "KG",
+                "peso_neto": item['cant'], "unitario": item['unit'], "total": item['total'],
+                "origen": item['origen'] or 0, "procedencia": item['proc'] or 203,
+                "moneda": "USD", "ncm": ncm,
+            })
+
+    return all_items, alertas
 
 def extraer_items_aesa_desde_excel(marcas_bytes):
     items = []
@@ -666,7 +686,7 @@ if st.session_state.paso >= 3:
                     items_otros, alertas_otros = extraer_items_natura_otros(textos_pdf, ncm_dict)
                     st.markdown(f'<div class="info-box">📄 {len(st.session_state.facturas_data)} factura(s) → {len(items_otros)} ítems detectados (tipo: natura_otros)</div>', unsafe_allow_html=True)
                     if alertas_otros:
-                        st.markdown(f'<div class="alerta-box">⚠️ {len(alertas_otros)} códigos del Excel no encontrados en las facturas: {", ".join(alertas_otros)}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="alerta-box">⚠️ {len(alertas_otros)} códigos del Excel no encontrados en las facturas: {", ".join(str(a) for a in alertas_otros)}</div>', unsafe_allow_html=True)
                     # Enriquecer items (marca, estado, origen_nombre)
                     items_enriquecidos = []
                     for item in items_otros:
