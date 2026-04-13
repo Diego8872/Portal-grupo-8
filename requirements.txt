@@ -12,3 +12,4 @@ xlrd
 reportlab
 pdf2image
 xlutils
+extract-msg
