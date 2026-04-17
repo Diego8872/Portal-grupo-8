@@ -730,9 +730,22 @@ def generar_excel_sidom(items, nombre_lote):
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return buf
 
-PAISES_INV = {}
-for nombre, cod in PAISES.items():
-    if cod not in PAISES_INV: PAISES_INV[cod] = nombre
+# Inverso con nombres en español priorizados
+PAISES_INV = {
+    203: "BRASIL", 212: "ESTADOS UNIDOS", 426: "REINO UNIDO", 438: "ALEMANIA",
+    417: "ITALIA", 405: "AUSTRIA", 429: "SUECIA", 422: "NORUEGA", 411: "FINLANDIA",
+    451: "REPUBLICA CHECA", 313: "TAIWAN", 310: "CHINA", 337: "VIETNAM",
+    309: "COREA DEL SUR", 320: "JAPON", 315: "INDIA", 430: "SUIZA",
+    423: "PAISES BAJOS", 412: "FRANCIA", 410: "ESPAÑA", 406: "BELGICA",
+    204: "CANADA", 218: "MEXICO", 200: "ARGENTINA", 208: "CHILE",
+    222: "PERU", 205: "COLOMBIA", 333: "SINGAPORE", 326: "MALAYSIA",
+    316: "INDONESIA", 335: "TAILANDIA", 436: "TURQUIA", 319: "ISRAEL",
+    159: "SUDAFRICA", 501: "AUSTRALIA", 504: "NUEVA ZELANDA",
+    424: "POLONIA", 414: "HUNGRIA", 427: "RUMANIA", 407: "BULGARIA",
+    447: "CROACIA", 448: "ESLOVAQUIA", 449: "ESLOVENIA", 444: "RUSIA",
+    445: "UCRANIA", 425: "PORTUGAL", 413: "GRECIA", 419: "LUXEMBURGO",
+    415: "IRLANDA", 409: "DINAMARCA", 341: "HONG KONG",
+}
 
 # ─── APP ──────────────────────────────────────────────────────────────────
 st.markdown('<div class="titulo-app">📦 CONSTRUCCIÓN DE LOTE</div>', unsafe_allow_html=True)
