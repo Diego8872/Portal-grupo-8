@@ -540,6 +540,33 @@ Retorná ÚNICAMENTE un array JSON válido, sin markdown."""
     alertas = [cod for cod, ncm in ncm_dict.items() if cod not in [i["codigo"] for i in items]]
     return items, alertas
 
+
+def extraer_items_kobo(texto_pdf):
+    """
+    Parser para facturas Kobo Brasil.
+    Formato: "2417 GP09473 DAITOSOL 5000SJ JAPAN 36 Box ... $ 31,5800 $ 1.136,8800"
+    El origen viene en la misma línea del ítem.
+    """
+    paises_kobo = r'(?:JAPAN|BRAZIL|BRASIL|USA|CHINA|INDIA|GERMANY|FRANCE|ITALY|KOREA|TAIWAN|UNITED STATES|UNITED KINGDOM)'
+    pat = re.compile(
+        r'^(\d{4})\s+\S+\s+(.+?)\s+(' + paises_kobo + r')\s+([\d.,]+)\s+\w+\s+\S+\s+\S+\s+[\d.]+\s+[\d.,]+\s+[\d\w\s=X]+\$\s+([\d.,]+)\s+\$\s+([\d.,]+)',
+        re.IGNORECASE
+    )
+    items = []
+    for l in texto_pdf.split('\n'):
+        m = pat.match(l.strip())
+        if m:
+            origen = get_codigo_pais(m.group(3)) or 0
+            items.append({
+                "codigo": m.group(1), "descripcion": m.group(2).strip()[:60],
+                "cantidad": limpiar_numero(m.group(4)),
+                "unidad_cod": 7, "unidad_raw": "PC",
+                "peso_neto": 0, "unitario": limpiar_numero(m.group(5)),
+                "total": limpiar_numero(m.group(6)),
+                "origen": origen, "procedencia": origen, "moneda": "USD",
+            })
+    return items
+
 def extraer_items_aesa_desde_excel(marcas_bytes):
     items = []
     try:
@@ -895,10 +922,16 @@ if st.session_state.paso >= 3:
                         for t in textos_pdf: items_raw.extend(extraer_items_natura_muestras(t))
                         if items_raw:
                             items_otros, alertas_otros = enriquecer_ncm(items_raw)
-                    # 3. Ashland (Excel-driven)
+                    # 3. Kobo
+                    if not items_otros:
+                        items_raw = []
+                        for t in textos_pdf: items_raw.extend(extraer_items_kobo(t))
+                        if items_raw:
+                            items_otros, alertas_otros = enriquecer_ncm(items_raw)
+                    # 4. Ashland (Excel-driven)
                     if not items_otros:
                         items_otros, alertas_otros = extraer_items_natura_otros(textos_pdf, ncm_dict)
-                    # 4. Genérico: búsqueda por código en texto + Groq Vision fallback
+                    # 5. Genérico: búsqueda por código en texto + Groq Vision fallback
                     if not items_otros:
                         items_otros, alertas_otros = extraer_items_por_codigo(textos_pdf, ncm_dict)
                     st.markdown(f'<div class="info-box">📄 {len(st.session_state.facturas_data)} factura(s) → {len(items_otros)} ítems detectados (tipo: natura_otros)</div>', unsafe_allow_html=True)
