@@ -155,6 +155,13 @@ projects = [
         "desc": "Generación automática de lotes CME y SIDOM desde facturas PDF. Múltiples proveedores, con lógica de marca, NCM y origen según cliente.",
         "page": "pages/12_Construccion_Lote.py"
     },
+    {
+        "icon": "⚖️",
+        "name": "Analizador de Normativa",
+        "tag": "Normativa",
+        "desc": "Consultá, analizá y cruzá cualquier normativa argentina — BCRA, AFIP, DGI, Boletín Oficial y más. Buscá por número o subí el documento.",
+        "page": "pages/13_Analizador_Normativo.py"
+    },
 ]
 
 coming_soon = [
