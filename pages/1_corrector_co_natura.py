@@ -1,13 +1,7 @@
 import streamlit as st
-import openpyxl, re, unicodedata, os, io
+import openpyxl, re, unicodedata, os, io, base64
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import pdfplumber
-
-st.set_page_config(
-    page_title="Corrector CO Natura",
-    page_icon="📋",
-    layout="centered"
-)
 
 st.markdown("""
 <style>
@@ -147,6 +141,168 @@ def parse_num(s):
     try: return float(s)
     except: return 0.0
 
+# ── Groq Vision ──────────────────────────────────────────────────────────────
+
+def pdf_a_imagenes_b64(path, dpi=200):
+    """Convierte PDF a lista de imágenes en base64."""
+    try:
+        from pdf2image import convert_from_path
+        pages = convert_from_path(path, dpi=dpi)
+        imgs = []
+        for page in pages:
+            buf = io.BytesIO()
+            page.save(buf, format='PNG')
+            buf.seek(0)
+            imgs.append(base64.standard_b64encode(buf.read()).decode('utf-8'))
+        return imgs
+    except Exception as e:
+        return []
+
+def groq_vision_co(path):
+    """Usa Groq Vision para extraer items del CO como JSON estructurado."""
+    import json
+    try:
+        from groq import Groq
+        api_key = st.secrets.get("GROQ_API_KEY", "")
+        if not api_key:
+            return []
+        client = Groq(api_key=api_key)
+        imagenes = pdf_a_imagenes_b64(path)
+        if not imagenes:
+            return []
+
+        items_json = []
+        for i, img_b64 in enumerate(imagenes):
+            response = client.chat.completions.create(
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/png;base64,{img_b64}"}
+                            },
+                            {
+                                "type": "text",
+                                "text": (
+                                    "Este es un Certificado de Origen (CO) de comercio exterior. "
+                                    "Extraé la tabla de productos y devolvé SOLO un JSON válido, sin texto adicional, sin markdown. "
+                                    "Formato exacto: "
+                                    '[{"orden":1,"ncm":"3307.20.10","cantidad":"26.880,000","unidad":"pc","valor":"104.351.116,800","material":"50568791"}] '
+                                    "El campo material es el número de 7-8 dígitos que aparece después del punto y coma (;) en la descripción del producto. "
+                                    "Incluí todos los ítems visibles en la tabla. "
+                                    "Responde SOLO con el array JSON, nada más."
+                                )
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=4096
+            )
+            raw = response.choices[0].message.content.strip()
+            # limpiar posibles markdown fences
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    items_json.extend(parsed)
+            except Exception:
+                pass
+
+        return items_json
+    except Exception:
+        return []
+
+def groq_vision_co_texto(path):
+    """Usa Groq Vision para extraer campos de cabecera del CO (produtor, importador, etc.) en texto plano."""
+    try:
+        from groq import Groq
+        api_key = st.secrets.get("GROQ_API_KEY", "")
+        if not api_key:
+            return []
+        client = Groq(api_key=api_key)
+        imagenes = pdf_a_imagenes_b64(path)
+        if not imagenes:
+            return []
+        # Solo primera página para cabecera
+        img_b64 = imagenes[0]
+        response = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                    {"type": "text", "text": (
+                        "Este es un Certificado de Origen. Extraé SOLO estos campos en texto plano, "
+                        "un dato por línea, con este formato exacto:\n"
+                        "PRODUTOR: <nombre empresa productora>\n"
+                        "IMPORTADOR: <nombre empresa importadora>\n"
+                        "FACTURA: <número de factura>\n"
+                        "DATA: <fecha en formato DD/MM/YYYY>\n"
+                        "OBSERVACIONES: <texto del campo 12 observações>\n"
+                        "No agregues nada más."
+                    )}
+                ]
+            }],
+            max_tokens=1024
+        )
+        return response.choices[0].message.content.strip().split("\n")
+    except Exception:
+        return []
+
+def groq_vision_fc(path):
+    """Usa Groq Vision para extraer fecha y total EXW de la FC cuando pdfplumber falla."""
+    try:
+        from groq import Groq
+        api_key = st.secrets.get("GROQ_API_KEY", "")
+        if not api_key:
+            return None
+        client = Groq(api_key=api_key)
+        imagenes = pdf_a_imagenes_b64(path)
+        if not imagenes:
+            return None
+
+        # Solo procesamos la primera página para FC (suele ser suficiente)
+        img_b64 = imagenes[0]
+        response = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{img_b64}"}
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Esta es una Factura Comercial (FC) de comercio exterior. "
+                                "Extraé TODO el texto visible línea por línea, preservando exactamente: "
+                                "fechas (formato DD/MM/YYYY), totales EXW con sus valores numéricos, "
+                                "totales ARS, y cualquier número monetario. "
+                                "No agregues interpretación, solo el texto exacto línea por línea."
+                            )
+                        }
+                    ]
+                }
+            ],
+            max_tokens=2048
+        )
+        return response.choices[0].message.content.split('\n')
+    except Exception:
+        return None
+
+# ── texto suficiente? ────────────────────────────────────────────────────────
+
+def texto_es_suficiente(lines, min_chars=100):
+    """Determina si el texto extraído por pdfplumber es suficiente."""
+    total = sum(len(l.strip()) for l in lines)
+    return total >= min_chars
+
+# ── leer archivos ────────────────────────────────────────────────────────────
+
 def leer_excel(path):
     wb = openpyxl.load_workbook(path, data_only=True)
     ws_item = wb['Item']
@@ -160,7 +316,7 @@ def leer_excel(path):
             ncm_clean = ncm_raw[:10]
             mat = row[col_mat-1]
             if mat and not str(mat).replace('.','').isdigit():
-                mat = row[5]  # fallback columna 6
+                mat = row[5]
             items.append({'ITEM': row[0], 'NCM': ncm_clean, 'CANTIDAD': row[col_cant-1], 'MARCA_MODEL_OTRO': mat})
     ws_car = wb['Carátula']
     rows_car = list(ws_car.iter_rows(values_only=True))
@@ -170,13 +326,23 @@ def leer_excel(path):
     return {'items': items, 'empresa': empresa, 'facturas': facturas, 'vendedor': vendedor}
 
 def leer_fc(path):
+    # Intento 1: pdfplumber
     full = ''
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
             t = page.extract_text()
             if t: full += t + '\n'
+
+    lines = full.split('\n')
+
+    # Fallback Groq si el texto es insuficiente
+    if not texto_es_suficiente(lines):
+        groq_lines = groq_vision_fc(path)
+        if groq_lines:
+            lines = groq_lines
+
     data = {'fecha': '', 'total_exw': None, 'total_ars': False}
-    for l in full.split('\n'):
+    for l in lines:
         m = re.search(r'FECHA\s+(\d{2}/\d{2}/\d{4})', l, re.IGNORECASE)
         if m: data['fecha'] = m.group(1)
         m = re.search(r'TOTAL\s+EXW\s+([\d\.,]+)', l, re.IGNORECASE)
@@ -185,118 +351,155 @@ def leer_fc(path):
     return data
 
 def leer_co_pdf(path):
+    # Intento 1: pdfplumber
     full_lines = []
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
             t = page.extract_text()
             if t: full_lines.extend(t.split('\n'))
 
-    produtor = ''
-    for l in full_lines[:40]:
-        if re.search(r'(industria|comercio|ltda)', l, re.IGNORECASE):
-            if not re.search(r'(certificado|origen|validez)', l, re.IGNORECASE):
-                produtor = re.split(r'(RODOVIA|ROD\.|RUA|AV\.|\bSP\b)', l, flags=re.IGNORECASE)[0].strip()
-                if produtor: break
+    # Fallback Groq si el texto es insuficiente
+    groq_items = []
+    if not texto_es_suficiente(full_lines):
+        groq_items = groq_vision_co(path)  # devuelve lista de dicts JSON
 
-    importador = ''
-    for i, l in enumerate(full_lines):
-        if re.search(r'2[,\.]\s*importador', l, re.IGNORECASE):
-            for j in range(i+1, min(i+6, len(full_lines))):
-                c = full_lines[j].strip()
-                if c and any(k in c.upper() for k in ['NATURA', 'S/A', 'LTDA', 'SA']):
-                    importador = re.split(r'(CAZADORES|AV\.|RUA|\d{5})', c, flags=re.IGNORECASE)[0].strip()
-                    break
-            break
+    # Si pdfplumber no extrajo texto, usar Groq también para cabecera
+    groq_texto_lines = []
+    if not texto_es_suficiente(full_lines):
+        groq_texto_lines = groq_vision_co_texto(path)
 
-    factura_num = data_co = ''
-    for l in full_lines:
-        ln = unicodedata.normalize('NFD', l)
-        ln = ''.join(c for c in ln if unicodedata.category(c) != 'Mn')
-        m = re.search(r'[Nn]um[^\s:]*[:\s]+([A-Z]{0,5}\d{6,12})', ln)
-        if m and not factura_num: factura_num = m.group(1)
-        m = re.search(r'[Dd]ata[:\s]+(\d{2}/\d{2}/\d{4})', l)
-        if m and not data_co: data_co = m.group(1)
+    def extraer_campo_groq(prefix, lines):
+        for l in lines:
+            if l.upper().startswith(prefix.upper() + ':'):
+                return l[len(prefix)+1:].strip()
+        return ''
 
-    # FIX: acepta gr, kg, pc y variantes anteriores (p con caracteres especiales)
+    # Extraer campos de cabecera — Groq si pdfplumber falló, regex si hay texto
+    produtor = extraer_campo_groq('PRODUTOR', groq_texto_lines) if groq_texto_lines else ''
+    if not produtor:
+        for l in full_lines[:40]:
+            if re.search(r'(industria|comercio|ltda)', l, re.IGNORECASE):
+                if not re.search(r'(certificado|origen|validez)', l, re.IGNORECASE):
+                    produtor = re.split(r'(RODOVIA|ROD\.|RUA|AV\.|\bSP\b)', l, flags=re.IGNORECASE)[0].strip()
+                    if produtor: break
+
+    importador = extraer_campo_groq('IMPORTADOR', groq_texto_lines) if groq_texto_lines else ''
+    if not importador:
+        for i, l in enumerate(full_lines):
+            if re.search(r'2[,\.]\s*importador', l, re.IGNORECASE):
+                for j in range(i+1, min(i+6, len(full_lines))):
+                    c = full_lines[j].strip()
+                    if c and any(k in c.upper() for k in ['NATURA', 'S/A', 'LTDA', 'SA']):
+                        importador = re.split(r'(CAZADORES|AV\.|RUA|\d{5})', c, flags=re.IGNORECASE)[0].strip()
+                        break
+                break
+
+    factura_num = extraer_campo_groq('FACTURA', groq_texto_lines) if groq_texto_lines else ''
+    data_co     = extraer_campo_groq('DATA', groq_texto_lines) if groq_texto_lines else ''
+    if not factura_num or not data_co:
+        for l in full_lines:
+            ln = unicodedata.normalize('NFD', l)
+            ln = ''.join(c for c in ln if unicodedata.category(c) != 'Mn')
+            m = re.search(r'[Nn]um[^\s:]*[:\s]+([A-Z]{0,5}\d{6,12})', ln)
+            if m and not factura_num: factura_num = m.group(1)
+            m = re.search(r'[Dd]ata[:\s]+(\d{2}/\d{2}/\d{4})', l)
+            if m and not data_co: data_co = m.group(1)
+
     pattern = re.compile(
         r'^\s*(\d{1,2})\s+(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+(?:gr|kg|pc|p[çc°¢])\s+([\d\.]+,\d{3})'
     )
 
-    mat_re_inline   = re.compile(r';\s*(\d{7,8})(?:\s|$)')
-    mat_re_nextline = re.compile(r'^\s*(\d{7,8})\s*$')
+    mat_re_semicolon = re.compile(r';\s*(\d{7,8})(?:\s|$)')   # con ";" como pista fuerte
+    mat_re_solosemi  = re.compile(r'^\s*;\s*(\d{7,8})\s*$')   # línea que empieza con ";"
+    mat_re_candidato = re.compile(r'(?<!\d)(\d{7,8})(?!\d)')  # fallback: 7-8 dígitos exactos
+    mat_re_ncm       = re.compile(r'\d{4}\.\d{2}\.\d{2}')
+    mat_re_djo       = re.compile(r'\d{6,8}\s*[-•]\s*\d{2}/\d{2}/\d{4}')
+
+    def es_material_valido(linea):
+        if mat_re_ncm.search(linea): return False
+        if mat_re_djo.search(linea): return False
+        if re.search(r'\d+,\d+', linea): return False
+        return True
 
     def buscar_material(lines, start, window=50):
-        for j in range(start, min(start+window, len(lines))):
-            mm = mat_re_inline.search(lines[j])
+        end = min(start + window, len(lines))
+
+        # Paso 1: buscar con ";" como pista fuerte
+        for j in range(start, end):
+            mm = mat_re_semicolon.search(lines[j])
             if mm: return int(mm.group(1))
-            if j > start and ';' in lines[j-1]:
-                mm2 = mat_re_nextline.match(lines[j])
-                if mm2: return int(mm2.group(1))
+            mm = mat_re_solosemi.match(lines[j])
+            if mm: return int(mm.group(1))
+
+        # Paso 2: fallback sin ";", descartando NCM/DJO/cantidades
+        for j in range(start, end):
+            linea = lines[j]
+            if not es_material_valido(linea): continue
+            mm = mat_re_candidato.search(linea)
+            if mm: return int(mm.group(1))
+
         return None
 
-    items = []
-    for i, l in enumerate(full_lines):
-        m = pattern.match(l)
-        if m:
-            orden, ncm, cant_str, val_str = int(m.group(1)), m.group(2), m.group(3), m.group(4)
-            material = buscar_material(full_lines, i)
-            if not any(it['orden'] == orden for it in items):
-                items.append({'orden': orden, 'ncm': ncm, 'cantidad': cant_str,
-                              'cantidad_num': parse_num(cant_str), 'valor': parse_num(val_str),
-                              'material': material})
-
-    materiales_encontrados = {it['material'] for it in items if it['material']}
-    for i, l in enumerate(full_lines):
-        mm = mat_re_inline.search(l)
-        if not mm and i > 0 and ';' in full_lines[i-1]:
-            mm = mat_re_nextline.match(l)
-        if mm:
-            mat = int(mm.group(1))
-            if mat not in materiales_encontrados:
-                for back in range(i-1, max(i-60, -1), -1):
-                    m = re.search(r'(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+(?:gr|kg|pc|p[çc°¢])\s+([\d\.]+,\d{3})', full_lines[back])
-                    if m:
-                        ncm, cant_str = m.group(1), m.group(2)
-                        for it in items:
-                            if it['ncm'] == ncm and it['cantidad'] == cant_str and it['material'] is None:
-                                it['material'] = mat
-                                materiales_encontrados.add(mat)
-                                break
-                        break
-
-    obs_lines = []
-    capture = False
-    for l in full_lines:
-        if re.search(r'12\.\s*observa', l, re.IGNORECASE): capture = True; continue
-        if capture:
-            if re.search(r'(certificac|declarac|13\.|14\.)', l, re.IGNORECASE): break
-            if l.strip(): obs_lines.append(l.strip())
-    obs = ' '.join(obs_lines).strip()
-
-    # fallback OCR si no se encontraron items
-    if not items:
-        try:
-            from pdf2image import convert_from_bytes
-            import pytesseract
-            with open(path, 'rb') as f:
-                pdf_bytes = f.read()
-            pages = convert_from_bytes(pdf_bytes, dpi=250)
-            texts = [pytesseract.image_to_string(p, lang='eng') for p in pages]
-            full_lines = '\n'.join(texts).split('\n')
-            pattern_ocr = re.compile(r'(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+(?:gr|kg|pc|p[¢cç°])\s+([\d\.]+,\d{3})', re.IGNORECASE)
-            for i, l in enumerate(full_lines):
-                m = pattern_ocr.search(l)
-                if m:
-                    ncm, cant_str, val_str = m.group(1), m.group(2), m.group(3)
-                    material = None
-                    for j in range(i, min(i+50, len(full_lines))):
-                        mm = mat_re_inline.search(full_lines[j])
-                        if mm: material = int(mm.group(1)); break
-                    items.append({'orden': len(items)+1, 'ncm': ncm, 'cantidad': cant_str,
+    # Si Groq devolvió items JSON, usarlos directamente
+    if groq_items:
+        items = []
+        for g in groq_items:
+            try:
+                mat = int(str(g.get('material', '') or '').strip()) if g.get('material') else None
+            except:
+                mat = None
+            cant_str = str(g.get('cantidad', ''))
+            val_str  = str(g.get('valor', '0'))
+            ncm      = str(g.get('ncm', ''))
+            items.append({
+                'orden': int(g.get('orden', len(items)+1)),
+                'ncm': ncm,
+                'cantidad': cant_str,
+                'cantidad_num': parse_num(cant_str),
+                'valor': parse_num(val_str),
+                'material': mat
+            })
+    else:
+        items = []
+        for i, l in enumerate(full_lines):
+            m = pattern.match(l)
+            if m:
+                orden, ncm, cant_str, val_str = int(m.group(1)), m.group(2), m.group(3), m.group(4)
+                material = buscar_material(full_lines, i)
+                if not any(it['orden'] == orden for it in items):
+                    items.append({'orden': orden, 'ncm': ncm, 'cantidad': cant_str,
                                   'cantidad_num': parse_num(cant_str), 'valor': parse_num(val_str),
                                   'material': material})
-        except:
-            pass
+
+        materiales_encontrados = {it['material'] for it in items if it['material']}
+        for i, l in enumerate(full_lines):
+            mm = mat_re_semicolon.search(l)
+            if not mm and i > 0 and ';' in full_lines[i-1]:
+                mm = mat_re_solosemi.match(l)
+            if mm:
+                mat = int(mm.group(1))
+                if mat not in materiales_encontrados:
+                    for back in range(i-1, max(i-60, -1), -1):
+                        m = re.search(r'(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+(?:gr|kg|pc|p[çc°¢])\s+([\d\.]+,\d{3})', full_lines[back])
+                        if m:
+                            ncm, cant_str = m.group(1), m.group(2)
+                            for it in items:
+                                if it['ncm'] == ncm and it['cantidad'] == cant_str and it['material'] is None:
+                                    it['material'] = mat
+                                    materiales_encontrados.add(mat)
+                                    break
+                            break
+
+    obs = extraer_campo_groq('OBSERVACIONES', groq_texto_lines) if groq_texto_lines else ''
+    if not obs:
+        obs_lines = []
+        capture = False
+        for l in full_lines:
+            if re.search(r'12\.\s*observa', l, re.IGNORECASE): capture = True; continue
+            if capture:
+                if re.search(r'(certificac|declarac|13\.|14\.)', l, re.IGNORECASE): break
+                if l.strip(): obs_lines.append(l.strip())
+        obs = ' '.join(obs_lines).strip()
 
     return {'produtor': produtor, 'importador': importador, 'factura_num': factura_num,
             'data': data_co, 'items': items, 'observaciones': obs}
@@ -349,31 +552,21 @@ def generar_reporte(xl, fc_data, co, op_id):
     for col, w in zip('ABCDEFG', [18, 28, 32, 32, 16, 35, 10]):
         ws.column_dimensions[col].width = w
 
-    # co_by_material como lista para soportar material duplicado (ej: 50241223 x2)
     from collections import defaultdict
     co_by_material = defaultdict(list)
     for ci in co['items']:
         if ci['material']:
             co_by_material[ci['material']].append(ci)
 
-    # Para cada item del Excel, busca el mejor match en CO por cantidad
     def buscar_co_item(mat_int, cant_excel):
         candidatos = co_by_material.get(mat_int, [])
         if not candidatos:
             return None
-        # Intentar match exacto o con conversión gr↔kg
         for ci in candidatos:
             cq = ci['cantidad_num']
-            # Match directo
-            if abs(cant_excel - cq) < 0.01:
-                return ci
-            # Excel en kg, CO en gr
-            if abs(cant_excel * 1000 - cq) < 0.5:
-                return ci
-            # Excel en gr, CO en kg
-            if abs(cant_excel / 1000 - cq) < 0.0001:
-                return ci
-        # Si no hay match exacto, devolver el primero (para mostrar la diferencia)
+            if abs(cant_excel - cq) < 0.01: return ci
+            if abs(cant_excel * 1000 - cq) < 0.5: return ci
+            if abs(cant_excel / 1000 - cq) < 0.0001: return ci
         return candidatos[0]
 
     row = 3
@@ -390,7 +583,6 @@ def generar_reporte(xl, fc_data, co, op_id):
         if co_item:
             res_ncm  = "✅ OK" if ncm_10 == co_item['ncm'].replace('.','') else "❌ DIFERENCIA"
             cq = co_item['cantidad_num']
-            # Comparar tolerando conversión gr↔kg
             match_cant = (abs(cant_exc - cq) < 0.01 or
                           abs(cant_exc * 1000 - cq) < 0.5 or
                           abs(cant_exc / 1000 - cq) < 0.0001)
