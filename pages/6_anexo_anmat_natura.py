@@ -1,6 +1,3 @@
-# Página 6 del Portal Grupo 8 — Generador ANMAT Natura
-# Sin set_page_config — lo maneja el portal
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -16,6 +13,9 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PageMargins
+
+# Página 6 del Portal Grupo 8 — Generador ANMAT Natura
+# Sin set_page_config — lo maneja el portal
 
 st.markdown("""
 <style>
@@ -39,6 +39,8 @@ st.markdown("""
     .stat-card .label { color: #888; font-size: 0.78rem; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
     .step-badge { display: inline-block; background: #00b4d8; color: #ffffff; border-radius: 50%; width: 22px; height: 22px; text-align: center; line-height: 22px; font-weight: 700; font-size: 0.78rem; margin-right: 8px; }
     .modo-muestras { background: linear-gradient(135deg, #fff8e1 0%, #fff3cd 100%); border-left: 5px solid #ffc107; border-radius: 8px; padding: 12px 18px; margin-bottom: 16px; color: #856404; font-weight: 600; font-size: 0.95rem; }
+    .equiv-found { background: #f0fff8; border: 1px solid #00c896; border-radius: 6px; padding: 10px 14px; margin: 6px 0; color: #007a5c; font-size: 0.85rem; }
+    .equiv-notfound { background: #fff5f5; border: 1px solid #ffb3b3; border-radius: 6px; padding: 8px 14px; margin: 4px 0; color: #cc0000; font-size: 0.82rem; }
     [data-testid="stToolbar"] { visibility: hidden !important; }
     [data-testid="stDecoration"] { display: none !important; }
     a[href*="github.com"] { display: none !important; }
@@ -135,7 +137,6 @@ def cargar_pl(file_bytes):
     pl = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
     return pl, invoice
 
-# Países conocidos para búsqueda en texto libre
 PAISES_CONOCIDOS = [
     'brazil', 'brasil', 'colombia', 'china', 'argentina', 'mexico', 'méxico',
     'peru', 'perú', 'chile', 'uruguay', 'paraguay', 'bolivia', 'ecuador',
@@ -159,7 +160,6 @@ PAIS_NORMALIZADO = {
 }
 
 def _extraer_pais_de_texto(texto):
-    """Busca un país conocido en un texto. Retorna nombre normalizado o None."""
     t = texto.lower()
     for p in PAISES_CONOCIDOS:
         if p in t:
@@ -167,10 +167,6 @@ def _extraer_pais_de_texto(texto):
     return None
 
 def _parsear_pdf_proximas(file_bytes):
-    """
-    Extrae materiales y origen de un PDF de factura/PL.
-    Retorna: (df con columnas Material/Origen, origen_explicito bool, origen_proveedor str o None)
-    """
     try:
         import pdfplumber
     except ImportError:
@@ -185,7 +181,6 @@ def _parsear_pdf_proximas(file_bytes):
             if t:
                 tablas.append(t)
 
-    # ── Estrategia 1: País de origen explícito ──
     patron_origen = [
         r'country\s+of\s+origin\s*[:\-]\s*([A-Za-z\s]+)',
         r'pa[ií]s\s+de\s+origen\s*[:\-]\s*([A-Za-z\s]+)',
@@ -202,7 +197,6 @@ def _parsear_pdf_proximas(file_bytes):
                 origen_explicito = pais
                 break
 
-    # ── Estrategia 2: País del exportador/proveedor ──
     origen_proveedor = None
     patron_exportador = [
         r'exporter\s*/\s*shipper\s*[:\-]?\s*(.+)',
@@ -215,7 +209,6 @@ def _parsear_pdf_proximas(file_bytes):
         m = re.search(pat, texto_completo, re.IGNORECASE)
         if m:
             linea = m.group(1).strip()
-            # Buscar en las siguientes 5 líneas también
             idx = texto_completo.lower().find(linea.lower())
             bloque = texto_completo[idx:idx+300] if idx >= 0 else linea
             pais = _extraer_pais_de_texto(bloque)
@@ -223,46 +216,37 @@ def _parsear_pdf_proximas(file_bytes):
                 origen_proveedor = pais
                 break
 
-    # Si no encontramos proveedor por keyword, buscar país en dirección del emisor (primeras líneas)
     if not origen_proveedor:
         primeras_lineas = '\n'.join(texto_completo.split('\n')[:15])
         origen_proveedor = _extraer_pais_de_texto(primeras_lineas)
 
-    # ── Extraer materiales de tablas ──
     col_material_keywords = ['code', 'código', 'codigo', 'material', 'material code',
                               'item', 'article', 'artículo', 'articulo', 'ref', 'sku']
     col_origen_keywords = ['origen', 'origin', 'país', 'pais', 'country']
 
     registros = []
-    origen_tabla = origen_explicito  # usar origen ya encontrado para todos los materiales
+    origen_tabla = origen_explicito
 
     for tabla in tablas:
         if not tabla or len(tabla) < 2:
             continue
         headers = [str(h).strip().lower() if h else '' for h in tabla[0]]
-
-        # Encontrar columna de material
         col_mat_idx = None
         for i, h in enumerate(headers):
             if any(kw in h for kw in col_material_keywords):
                 col_mat_idx = i
                 break
-
-        # Encontrar columna de origen en tabla
         col_orig_idx = None
         for i, h in enumerate(headers):
             if any(kw in h for kw in col_origen_keywords):
                 col_orig_idx = i
                 break
-
         if col_mat_idx is None:
             continue
-
         for row in tabla[1:]:
             if not row or col_mat_idx >= len(row):
                 continue
             val = str(row[col_mat_idx]).strip() if row[col_mat_idx] else ''
-            # Solo códigos numéricos de 5+ dígitos
             if re.match(r'^\d{5,}', val):
                 orig = origen_tabla
                 if col_orig_idx is not None and col_orig_idx < len(row):
@@ -272,9 +256,8 @@ def _parsear_pdf_proximas(file_bytes):
                         orig = p
                 registros.append({'Material': val, 'Origen': orig or ''})
 
-    # Si no hay tabla pero hay texto, buscar códigos numéricos en el texto
     if not registros:
-        codigos = re.findall(r'(\d{5,8})', texto_completo)
+        codigos = re.findall(r'(\d{5,8})', texto_completo)
         for cod in set(codigos):
             registros.append({'Material': cod, 'Origen': origen_tabla or ''})
 
@@ -287,9 +270,7 @@ def _parsear_pdf_proximas(file_bytes):
 
 
 def cargar_proximas(file_bytes, filename=''):
-    """Carga Próximas Importaciones desde Excel o PDF."""
     es_pdf = filename.lower().endswith('.pdf')
-
     if es_pdf:
         df, origen_explicito, origen_proveedor = _parsear_pdf_proximas(file_bytes)
         return df, es_pdf, origen_explicito, origen_proveedor
@@ -409,6 +390,61 @@ def verificar_vencimiento(expire_str):
     if fecha <= limite_90:
         return 'proximo', f"⚠️ Vence próximo en 90 días: {expire_str}"
     return 'ok', None
+
+def buscar_equivalente_en_bases(cod_equiv, df_anmat, df_avon, df_prox, df_fab, df_ncm, descripcion_pl=''):
+    """
+    Busca un código equivalente en ANMAT y Avon.
+    Retorna (datos_dict, fuente, error_msg)
+    datos_dict: diccionario con los campos del anexo (o None si no encontrado)
+    fuente: 'anmat' | 'avon' | None
+    error_msg: string con error o None
+    """
+    anmat_row = buscar_anmat(cod_equiv, df_anmat)
+    if anmat_row is not None:
+        nombre = str(anmat_row['NOMBRE']) if pd.notna(anmat_row['NOMBRE']) else ''
+        variedad = str(anmat_row['Variedad']) if pd.notna(anmat_row['Variedad']) else ''
+        contenido = str(anmat_row['CONTENIDO NETO']) if pd.notna(anmat_row['CONTENIDO NETO']) else ''
+        registro = str(anmat_row['Registros ANMAT']) if pd.notna(anmat_row['Registros ANMAT']) else ''
+        origen = str(anmat_row['ORIGEN']) if pd.notna(anmat_row['ORIGEN']) else ''
+
+        if 'REFIL' in descripcion_pl.upper():
+            nombre = nombre + ' (REPUESTO)'
+
+        origen_norm = normalizar_pais(origen).capitalize() if origen != 'nan' else ''
+        fab, _ = buscar_fabricante(origen, cod_equiv, df_fab)
+        ncm, _ = buscar_ncm(cod_equiv, df_ncm)
+
+        return {
+            'Marca y Nombre del producto': nombre if nombre != 'nan' else '',
+            'Variedades': variedad if variedad != 'nan' else '',
+            'Presentación': contenido if contenido != 'nan' else '',
+            'N° de inscripcion': registro if registro != 'nan' else '',
+            'Origen': origen_norm,
+            'Fabricante': fab or '',
+            'Posición Arancelaria': ncm or '',
+        }, 'anmat', None
+
+    avon_row = buscar_avon(cod_equiv, df_avon)
+    if avon_row is not None:
+        nombre_avon = str(avon_row.get('NOMBRE DE REGISTRO DE PRODUCTO', ''))
+        contenido_avon = str(avon_row.get('CONTENIDO LEGAL', ''))
+        registro_avon = str(avon_row.get('Reg. SP   (Trámite#)\nARGENTINA NATURA', ''))
+        if 'REFIL' in descripcion_pl.upper():
+            nombre_avon = nombre_avon + ' (REPUESTO)'
+        ncm, _ = buscar_ncm(cod_equiv, df_ncm)
+
+        return {
+            'Marca y Nombre del producto': nombre_avon if nombre_avon != 'nan' else '',
+            'Variedades': '',
+            'Presentación': contenido_avon if contenido_avon != 'nan' else '',
+            'N° de inscripcion': registro_avon if registro_avon != 'nan' else '',
+            'Origen': '',
+            'Fabricante': '',
+            'Posición Arancelaria': ncm or '',
+        }, 'avon', None
+
+    return None, None, f"Código {cod_equiv} no encontrado en ANMAT ni Avon."
+
 
 def procesar_pl(pl, df_anmat, df_avon, df_prox, df_fab, df_ncm):
     filas = []
@@ -574,7 +610,9 @@ def procesar_pl(pl, df_anmat, df_avon, df_prox, df_fab, df_ncm):
                 })
                 fila['_avon_idx'] = avon_idx_actual
             else:
+                # No encontrado en ninguna base → marcar para alerta con equivalente
                 fila['_skip'] = True
+                fila['_no_encontrado'] = True
                 alertas_excluir.append({
                     'material': mat_code,
                     'descripcion': descripcion_pl,
@@ -875,7 +913,10 @@ ANCHOS = {'MATERIAL': 14, 'descripcion_factura': 38, 'Marca y Nombre del product
           'Lote': 18, 'Fecha de vencimiento': 20, 'Origen': 14, 'Fabricante': 48,
           'Posición Arancelaria': 22}
 
-def escribir_excel_bytes(filas, incluir_primeras_cols=True, col_cantidad_header='Cantidad'):
+LEYENDA_ROTULADO = "será sobrerotulado en depósito con los datos legales exigidos por la normativa Argentina previo a su comercialización."
+
+def escribir_excel_bytes(filas, incluir_primeras_cols=True, col_cantidad_header='Cantidad',
+                         materiales_rotulado=None):
     wb = Workbook()
     ws = wb.active
     ws.title = 'Anexo de Productos'
@@ -919,6 +960,31 @@ def escribir_excel_bytes(filas, incluir_primeras_cols=True, col_cantidad_header=
             if tiene_alerta:
                 cell.fill = alerta_fill
 
+    # ── Leyenda de Rotulado ──
+    if materiales_rotulado:
+        ultima_fila_datos = len(filas) + 2  # fila título (1) + fila headers (2) + datos
+        fila_vacia = ultima_fila_datos + 1
+        fila_leyenda = ultima_fila_datos + 2
+
+        # Determinar columna D (índice 4 en 1-based si incluye primeras cols, o 2 si no)
+        if incluir_primeras_cols:
+            col_leyenda_idx = 4  # columna D = Cantidad
+        else:
+            col_leyenda_idx = 2  # ajuste si no tiene las primeras cols
+
+        mats_str = ', '.join(str(m) for m in materiales_rotulado)
+        texto_leyenda = f"Material {mats_str}: {LEYENDA_ROTULADO}"
+
+        # Merge desde col_leyenda_idx hasta el final
+        col_inicio_letter = get_column_letter(col_leyenda_idx)
+        col_fin_letter = get_column_letter(len(columnas))
+        ws.merge_cells(f'{col_inicio_letter}{fila_leyenda}:{col_fin_letter}{fila_leyenda}')
+
+        cell_leyenda = ws.cell(row=fila_leyenda, column=col_leyenda_idx, value=texto_leyenda)
+        cell_leyenda.font = Font(name='Calibri', size=10, bold=True)
+        cell_leyenda.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        ws.row_dimensions[fila_leyenda].height = 30
+
     for col_idx, col_name in enumerate(columnas, 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = ANCHOS.get(col_name, 15)
 
@@ -955,6 +1021,8 @@ def excel_a_pdf_bytes(excel_bytes, nombre_base):
                                        textColor=colors.white, fontName='Helvetica-Bold')
         style_title  = ParagraphStyle('title',  fontSize=8, leading=10, alignment=TA_CENTER,
                                        fontName='Helvetica-Bold')
+        style_leyenda = ParagraphStyle('leyenda', fontSize=7, leading=9, alignment=TA_LEFT,
+                                        fontName='Helvetica-Bold')
 
         ancho_total = landscape(A4)[0] - 1.4*cm
         pesos = [4.0, 1.4, 1.4, 1.2, 2.2, 1.4, 1.8, 1.2, 3.8, 2.0]
@@ -980,9 +1048,17 @@ def excel_a_pdf_bytes(excel_bytes, nombre_base):
                 data.append([safe_para(c, style_header) for c in cells])
             else:
                 cells = list(row)
-                while len(cells) < len(pesos): cells.append('')
-                cells = cells[:len(pesos)]
-                data.append([safe_para(c, style_normal) for c in cells])
+                # Detectar si es fila de leyenda (celda de leyenda contiene el texto de rotulado)
+                fila_str = ' '.join(str(c) for c in cells if c)
+                if LEYENDA_ROTULADO[:20] in fila_str:
+                    # Fila de leyenda: span completo
+                    texto_leyenda = next((str(c) for c in cells if c and LEYENDA_ROTULADO[:20] in str(c)), '')
+                    leyenda_row = [safe_para(texto_leyenda, style_leyenda)] + ['' for _ in range(len(pesos)-1)]
+                    data.append(leyenda_row)
+                else:
+                    while len(cells) < len(pesos): cells.append('')
+                    cells = cells[:len(pesos)]
+                    data.append([safe_para(c, style_normal) for c in cells])
 
         if not data:
             return None
@@ -992,7 +1068,10 @@ def excel_a_pdf_bytes(excel_bytes, nombre_base):
                                 leftMargin=0.7*cm, rightMargin=0.7*cm,
                                 topMargin=0.8*cm, bottomMargin=0.8*cm)
         table = Table(data, colWidths=col_widths, repeatRows=2)
-        table.setStyle(TableStyle([
+
+        # Span para leyenda si existe
+        n_filas = len(data)
+        style_cmds = [
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#D9D9D9')),
             ('SPAN',       (0,0), (-1,0)),
             ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#70AD47')),
@@ -1003,7 +1082,16 @@ def excel_a_pdf_bytes(excel_bytes, nombre_base):
             ('RIGHTPADDING',  (0,0), (-1,-1), 3),
             ('TOPPADDING',    (0,0), (-1,-1), 2),
             ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ]))
+        ]
+        # Si la última fila es la leyenda, hacer span
+        if n_filas > 2:
+            last_row = data[-1]
+            fila_str_last = str(last_row[0]) if last_row else ''
+            if LEYENDA_ROTULADO[:15] in fila_str_last or 'sobrerotulado' in fila_str_last:
+                style_cmds.append(('SPAN', (0, n_filas-1), (-1, n_filas-1)))
+                style_cmds.append(('ALIGN', (0, n_filas-1), (-1, n_filas-1), 'LEFT'))
+
+        table.setStyle(TableStyle(style_cmds))
         doc.build([table])
         buf.seek(0)
         return buf.getvalue()
@@ -1011,16 +1099,20 @@ def excel_a_pdf_bytes(excel_bytes, nombre_base):
         print(f'PDF error: {e}')
         return None
 
-def generar_zip(grupos, invoice, col_cantidad_header='Cantidad'):
+def generar_zip(grupos, invoice, col_cantidad_header='Cantidad', materiales_rotulado=None):
     buf = BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for nombre, filas in grupos:
             if not filas:
                 continue
             nombre_base = f'ANEXO_{nombre}_{invoice}'
-            xls_completo = escribir_excel_bytes(filas, incluir_primeras_cols=True, col_cantidad_header=col_cantidad_header)
+            xls_completo = escribir_excel_bytes(filas, incluir_primeras_cols=True,
+                                                col_cantidad_header=col_cantidad_header,
+                                                materiales_rotulado=materiales_rotulado)
             zf.writestr(f'{nombre_base}.xlsx', xls_completo)
-            xls_sin = escribir_excel_bytes(filas, incluir_primeras_cols=False, col_cantidad_header=col_cantidad_header)
+            xls_sin = escribir_excel_bytes(filas, incluir_primeras_cols=False,
+                                           col_cantidad_header=col_cantidad_header,
+                                           materiales_rotulado=materiales_rotulado)
             zf.writestr(f'{nombre_base}_SIN_MAT.xlsx', xls_sin)
             pdf = excel_a_pdf_bytes(xls_sin, f'{nombre_base}_SIN_MAT')
             if pdf:
@@ -1044,6 +1136,16 @@ defaults = {
     'invoice_muestras':        None,
     'alertas_muestras':        [],
     'col_cantidad_muestras':   'Cantidad',
+    # Equivalentes: dict {material: {'codigo': str, 'datos': dict|None, 'fuente': str|None, 'error': str|None}}
+    'equivalentes':            {},
+    # Rotulado
+    'rotulado_activo':         False,
+    'materiales_rotulado':     [],
+    # Cache de bases para búsqueda de equivalentes
+    '_df_anmat_cache':         None,
+    '_df_avon_cache':          None,
+    '_df_fab_cache':           None,
+    '_df_ncm_cache':           None,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -1055,7 +1157,7 @@ modo = st.radio(
     "¿Qué tipo de operación es?",
     options=["Operación normal", "Muestras Natura"],
     horizontal=True,
-    key='modo_radio'
+    key='p6_modo_radio'
 )
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1068,18 +1170,18 @@ if modo == "Muestras Natura":
 
     st.markdown('<div class="card"><h3><span class="step-badge">1</span>Archivos de la operación</h3>', unsafe_allow_html=True)
     st.markdown("**📌 Número de referencia de la operación**")
-    nro_ref_m = st.text_input("", placeholder="ej: MN014-26", label_visibility="collapsed", key='nro_ref_muestras')
+    nro_ref_m = st.text_input("", placeholder="ej: MN014-26", label_visibility="collapsed", key='p6_nro_ref_muestras')
 
     col1, col2 = st.columns(2)
     with col1:
-        f_pl_m = st.file_uploader("📦 Packing List / Invoice (.xlsx)", type=['xlsx'], key='pl_muestras')
+        f_pl_m = st.file_uploader("📦 Packing List / Invoice (.xlsx)", type=['xlsx'], key='p6_pl_muestras')
     with col2:
-        f_msg  = st.file_uploader("📧 Mail de clasificación ANMAT (.msg)", type=['msg'], key='msg_muestras')
+        f_msg  = st.file_uploader("📧 Mail de clasificación ANMAT (.msg)", type=['msg'], key='p6_msg_muestras')
     st.markdown('</div>', unsafe_allow_html=True)
 
     if f_pl_m and f_msg:
         st.markdown('<div class="card"><h3><span class="step-badge">2</span>Procesar</h3>', unsafe_allow_html=True)
-        if st.button("⚙️ Analizar y procesar muestras", key='btn_procesar_muestras'):
+        if st.button("⚙️ Analizar y procesar muestras", key='p6_btn_procesar_muestras'):
             with st.spinner('Procesando...'):
                 try:
                     items_mail, err_mail = parsear_msg(f_msg.read())
@@ -1134,7 +1236,7 @@ if modo == "Muestras Natura":
                          use_container_width=True)
 
         st.markdown('<div class="card"><h3><span class="step-badge">4</span>Generar Anexo de Muestras</h3>', unsafe_allow_html=True)
-        if st.button("📄 Generar Anexo de Muestras", key='btn_generar_muestras'):
+        if st.button("📄 Generar Anexo de Muestras", key='p6_btn_generar_muestras'):
             with st.spinner('Generando archivos...'):
                 ref = nro_ref_m.strip() if nro_ref_m.strip() else (invoice_m or 'MUESTRAS')
                 col_hdr = st.session_state.get('col_cantidad_muestras', 'Cantidad')
@@ -1146,7 +1248,7 @@ if modo == "Muestras Natura":
                     data=zip_bytes,
                     file_name=f"ANEXO_MUESTRAS_{ref}.zip",
                     mime="application/zip",
-                    key='dl_zip_muestras'
+                    key='p6_dl_zip_muestras'
                 )
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1159,36 +1261,57 @@ else:
     st.markdown("**📌 Número de referencia de la operación**")
     nro_referencia = st.text_input("", placeholder="ej: 4550595912", label_visibility="collapsed")
 
+    st.markdown("**🏷️ Rotulado**")
+    rotulado_opcion = st.radio(
+        "¿Algún artículo tiene rotulado?",
+        options=["No", "Sí"],
+        horizontal=True,
+        key='p6_rotulado_radio'
+    )
+    st.session_state.rotulado_activo = (rotulado_opcion == "Sí")
+
     col1, col2 = st.columns(2)
     with col1:
-        f_pl    = st.file_uploader("📦 Packing List",                  type=['xlsx'],        key='pl')
-        f_prox  = st.file_uploader("📅 Próximas Importaciones",        type=['xlsx', 'pdf'], key='prox')
-        f_anmat = st.file_uploader("🏥 Registro ANMAT Histórico",      type=['xlsb','xlsx'], key='anmat')
+        f_pl    = st.file_uploader("📦 Packing List",                  type=['xlsx'],        key='p6_pl')
+        f_prox  = st.file_uploader("📅 Próximas Importaciones",        type=['xlsx', 'pdf'], key='p6_prox')
+        f_anmat = st.file_uploader("🏥 Registro ANMAT Histórico",      type=['xlsb','xlsx'], key='p6_anmat')
     with col2:
-        f_avon  = st.file_uploader("🌸 Registros Avon",               type=['xlsx'],        key='avon')
-        f_fab   = st.file_uploader("🏭 Fabricantes",                   type=['xls','xlsx'],  key='fab')
-        f_ncm   = st.file_uploader("📊 Catálogo NCM",                  type=['xlsx'],        key='ncm')
+        f_avon  = st.file_uploader("🌸 Registros Avon",               type=['xlsx'],        key='p6_avon')
+        f_fab   = st.file_uploader("🏭 Fabricantes",                   type=['xls','xlsx'],  key='p6_fab')
+        f_ncm   = st.file_uploader("📊 Catálogo NCM",                  type=['xlsx'],        key='p6_ncm')
     st.markdown('</div>', unsafe_allow_html=True)
 
     archivos_ok = all([f_pl, f_prox, f_anmat, f_avon, f_fab, f_ncm])
 
     if archivos_ok:
         st.markdown('<div class="card"><h3><span class="step-badge">2</span>Procesar operación</h3>', unsafe_allow_html=True)
-        if st.button("⚙️ Analizar y procesar", key='btn_procesar'):
+        if st.button("⚙️ Analizar y procesar", key='p6_btn_procesar'):
             with st.spinner('Procesando...'):
                 try:
                     suffix_fab = '.xls' if f_fab.name.endswith('.xls') else '.xlsx'
                     pl, invoice        = cargar_pl(f_pl.read())
+
+                    anmat_bytes = f_anmat.read()
+                    avon_bytes  = f_avon.read()
+                    fab_bytes   = f_fab.read()
+                    ncm_bytes   = f_ncm.read()
+
                     df_prox, es_pdf_prox, origen_explicito_prox, origen_proveedor_prox = cargar_proximas(f_prox.read(), f_prox.name)
-                    # Si PDF sin origen explícito → guardar alerta para mostrar al usuario
                     if es_pdf_prox and not origen_explicito_prox and origen_proveedor_prox:
                         st.session_state.alerta_origen_proveedor = origen_proveedor_prox
                     else:
                         st.session_state.alerta_origen_proveedor = None
-                    df_anmat           = cargar_anmat(f_anmat.read())
-                    df_avon            = cargar_avon(f_avon.read())
-                    df_fab             = cargar_fabricantes(f_fab.read(), suffix=suffix_fab)
-                    df_ncm             = cargar_ncm(f_ncm.read())
+
+                    df_anmat = cargar_anmat(anmat_bytes)
+                    df_avon  = cargar_avon(avon_bytes)
+                    df_fab   = cargar_fabricantes(fab_bytes, suffix=suffix_fab)
+                    df_ncm   = cargar_ncm(ncm_bytes)
+
+                    # Guardar en session state para búsqueda de equivalentes
+                    st.session_state._df_anmat_cache = df_anmat
+                    st.session_state._df_avon_cache  = df_avon
+                    st.session_state._df_fab_cache   = df_fab
+                    st.session_state._df_ncm_cache   = df_ncm
 
                     filas, alertas_excluir, alertas_avon, alertas_generales = procesar_pl(
                         pl, df_anmat, df_avon, df_prox, df_fab, df_ncm
@@ -1203,6 +1326,9 @@ else:
                     st.session_state.datos_avon_completados = {}
                     st.session_state.df_avon_editable       = None
                     st.session_state._avon_init_invoice     = None
+                    st.session_state.equivalentes           = {}
+                    st.session_state.rotulado_activo        = False
+                    st.session_state.materiales_rotulado    = []
 
                 except Exception as e:
                     st.error(f"Error al procesar: {e}")
@@ -1236,12 +1362,12 @@ else:
             st.markdown(f'<div class="alert-box">No se encontró "Country of origin" u origen explícito en el PDF. Se detectó <strong>{prov}</strong> como país del proveedor/exportador. ¿Confirmás que el origen es <strong>{prov}</strong>?</div>', unsafe_allow_html=True)
             col_conf1, col_conf2 = st.columns([1, 1])
             with col_conf1:
-                if st.button(f"✅ Confirmar origen: {prov}", key='confirmar_origen_prov'):
+                if st.button(f"✅ Confirmar origen: {prov}", key='p6_confirmar_origen_prov'):
                     st.session_state.alerta_origen_proveedor = None
                     st.rerun()
             with col_conf2:
-                origen_manual = st.text_input("O ingresá el origen correcto:", key='origen_manual_prov')
-                if origen_manual and st.button("Usar este origen", key='usar_origen_manual'):
+                origen_manual = st.text_input("O ingresá el origen correcto:", key='p6_origen_manual_prov')
+                if origen_manual and st.button("Usar este origen", key='p6_usar_origen_manual'):
                     st.session_state.alerta_origen_proveedor = None
                     st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
@@ -1268,7 +1394,7 @@ else:
                                     op.get('Marca y Nombre del producto','') + '</strong> | Variedad: ' +
                                     op.get('Variedades','—') + ' | Presentación: ' + op.get('Presentación','—') + '</div>', unsafe_allow_html=True)
                     with col2:
-                        if st.button("✅ Incluida" if incluido else "Incluir", key='btn_' + key_op):
+                        if st.button("✅ Incluida" if incluido else "Incluir", key='p6_btn_' + key_op):
                             if incluido:
                                 st.session_state.incluidos_multi.discard(key_op)
                             else:
@@ -1291,22 +1417,113 @@ else:
                 with col1:
                     st.markdown(f'<div class="alert-box" style="border-color:{color};color:{color};">{icono} <strong>{fila["MATERIAL"]}</strong> — Lote {fila["Lote"]} — {msg_str}</div>', unsafe_allow_html=True)
                 with col2:
-                    if st.button("✅ Excluido" if excluido else "Excluir", key=f'btn_venc_{key_excl}'):
+                    if st.button("✅ Excluido" if excluido else "Excluir", key=f'p6_btn_venc_{key_excl}'):
                         st.session_state.excluidos.add(key_excl)
                         st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
 
+        # ══════════════════════════════════════════════════════
+        # SECCIÓN: No encontrados en ANMAT ni Avon + Equivalente
+        # ══════════════════════════════════════════════════════
         if st.session_state.alertas_excluir:
-            st.markdown('<div class="card"><h3>⚠️ No encontrados en ANMAT ni Avon — ¿excluir del anexo?</h3>', unsafe_allow_html=True)
+            st.markdown('<div class="card"><h3>⚠️ No encontrados en ANMAT ni Avon</h3>', unsafe_allow_html=True)
+
+            df_anmat_cache = st.session_state.get('_df_anmat_cache')
+            df_avon_cache  = st.session_state.get('_df_avon_cache')
+            df_fab_cache   = st.session_state.get('_df_fab_cache')
+            df_ncm_cache   = st.session_state.get('_df_ncm_cache')
+            bases_disponibles = all([df_anmat_cache is not None, df_avon_cache is not None,
+                                     df_fab_cache is not None, df_ncm_cache is not None])
+
             for idx_excl, item in enumerate(st.session_state.alertas_excluir):
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.markdown(f'<div class="alert-box"><strong>{item["material"]}</strong> — {item["descripcion"]}</div>', unsafe_allow_html=True)
-                with col2:
-                    excluido = item['material'] in st.session_state.excluidos
-                    if st.button("✅ Excluido" if excluido else "Excluir del Anexo", key=f'excl_{item["material"]}_{idx_excl}'):
-                        st.session_state.excluidos.add(item['material'])
+                mat = item['material']
+                desc = item['descripcion']
+                excluido = mat in st.session_state.excluidos
+
+                estado_equiv = st.session_state.equivalentes.get(mat, {})
+                equiv_encontrado = estado_equiv.get('datos') is not None
+
+                st.markdown(f'<div class="alert-box"><strong>{mat}</strong> — {desc}</div>', unsafe_allow_html=True)
+
+                # Si ya tiene equivalente encontrado → mostrar preview
+                if equiv_encontrado:
+                    datos_eq = estado_equiv['datos']
+                    fuente_eq = estado_equiv.get('fuente', '')
+                    cod_eq = estado_equiv.get('codigo', '')
+                    fuente_label = '🏥 ANMAT' if fuente_eq == 'anmat' else '🌸 Avon'
+                    st.markdown(
+                        f'<div class="equiv-found">✅ Equivalente encontrado ({fuente_label}): '
+                        f'<strong>{cod_eq}</strong> → <em>{datos_eq.get("Marca y Nombre del producto", "")}</em> '
+                        f'| {datos_eq.get("Presentación", "")} | Reg: {datos_eq.get("N° de inscripcion", "")}'
+                        f'</div>', unsafe_allow_html=True
+                    )
+                    # Botón para cambiar equivalente
+                    col_cambiar, col_excl = st.columns([3, 1])
+                    with col_cambiar:
+                        if st.button("🔄 Cambiar equivalente", key=f'p6_cambiar_equiv_{mat}_{idx_excl}'):
+                            eq_state = st.session_state.equivalentes.get(mat, {})
+                            eq_state['datos'] = None
+                            eq_state['error'] = None
+                            st.session_state.equivalentes[mat] = eq_state
+                            st.rerun()
+                    with col_excl:
+                        if st.button("✅ Excluido" if excluido else "❌ Excluir del Anexo",
+                                     key=f'p6_excl_{mat}_{idx_excl}'):
+                            if excluido:
+                                st.session_state.excluidos.discard(mat)
+                            else:
+                                st.session_state.excluidos.add(mat)
+                            st.rerun()
+                else:
+                    # Mostrar campo de equivalente + botón excluir
+                    col_input, col_btn_buscar, col_excl = st.columns([3, 1, 1])
+                    with col_input:
+                        cod_prev = estado_equiv.get('codigo', '')
+                        cod_equiv_input = st.text_input(
+                            "Código equivalente",
+                            value=cod_prev,
+                            placeholder="ej: 12345",
+                            label_visibility="collapsed",
+                            key=f'p6_equiv_input_{mat}_{idx_excl}'
+                        )
+                    with col_btn_buscar:
+                        buscar_clicked = st.button("🔍 Buscar", key=f'p6_buscar_equiv_{mat}_{idx_excl}')
+                    with col_excl:
+                        if st.button("✅ Excluido" if excluido else "❌ Excluir del Anexo",
+                                     key=f'p6_excl_{mat}_{idx_excl}'):
+                            if excluido:
+                                st.session_state.excluidos.discard(mat)
+                            else:
+                                st.session_state.excluidos.add(mat)
+                            st.rerun()
+
+                    if buscar_clicked and cod_equiv_input.strip() and bases_disponibles:
+                        cod_equiv_clean = cod_equiv_input.strip()
+                        datos_eq, fuente_eq, error_eq = buscar_equivalente_en_bases(
+                            cod_equiv_clean, df_anmat_cache, df_avon_cache,
+                            None, df_fab_cache, df_ncm_cache,
+                            descripcion_pl=desc
+                        )
+                        st.session_state.equivalentes[mat] = {
+                            'codigo': cod_equiv_clean,
+                            'datos': datos_eq,
+                            'fuente': fuente_eq,
+                            'error': error_eq,
+                        }
+                        # Si se encontró, también quitar de excluidos (si estaba)
+                        if datos_eq is not None:
+                            st.session_state.excluidos.discard(mat)
                         st.rerun()
+
+                    # Mostrar error de búsqueda previa
+                    if estado_equiv.get('error'):
+                        st.markdown(
+                            f'<div class="equiv-notfound">🔴 {estado_equiv["error"]} — Intentá con otro código.</div>',
+                            unsafe_allow_html=True
+                        )
+
+                st.markdown('<hr style="border:none;border-top:1px solid #f0f0f0;margin:8px 0;">', unsafe_allow_html=True)
+
             st.markdown('</div>', unsafe_allow_html=True)
 
         if st.session_state.alertas_avon:
@@ -1318,11 +1535,11 @@ else:
                 st.markdown(f'<div class="alert-box"><strong>{mat}</strong> — {item["descripcion"]}</div>', unsafe_allow_html=True)
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    fab_val = st.text_input("Fabricante", value=prev.get('fabricante', ''), key=f'fab_{key_idx}')
+                    fab_val = st.text_input("Fabricante", value=prev.get('fabricante', ''), key=f'p6_fab_{key_idx}')
                 with c2:
-                    orig_val = st.text_input("Origen", value=prev.get('origen', ''), key=f'orig_{key_idx}')
+                    orig_val = st.text_input("Origen", value=prev.get('origen', ''), key=f'p6_orig_{key_idx}')
                 with c3:
-                    var_val = st.text_input("Variedad", value=prev.get('variedad', ''), key=f'var_{key_idx}')
+                    var_val = st.text_input("Variedad", value=prev.get('variedad', ''), key=f'p6_var_{key_idx}')
                 st.session_state.datos_avon_completados[key_idx] = {
                     'fabricante': fab_val,
                     'origen': orig_val,
@@ -1335,8 +1552,45 @@ else:
                 for a in st.session_state.alertas_generales:
                     st.markdown(f'<div class="alert-box">{a}</div>', unsafe_allow_html=True)
 
-        st.markdown('<div class="card"><h3><span class="step-badge">4</span>Generar Anexo</h3>', unsafe_allow_html=True)
-        if st.button("📄 Generar Anexo completo", key='btn_generar'):
+        # ══════════════════════════════════════════════════════
+        # SECCIÓN: Rotulado — multiselect post-proceso si Sí
+        # ══════════════════════════════════════════════════════
+        if st.session_state.get('rotulado_activo'):
+            st.markdown('<div class="card"><h3>🏷️ Rotulado — seleccioná los materiales</h3>', unsafe_allow_html=True)
+            mats_disponibles = []
+            for fila in st.session_state.filas_procesadas:
+                mat_f = fila.get('MATERIAL', '')
+                if mat_f and mat_f not in st.session_state.excluidos and not fila.get('_skip'):
+                    if mat_f not in mats_disponibles:
+                        mats_disponibles.append(mat_f)
+            for mat_eq, eq_data in st.session_state.equivalentes.items():
+                if eq_data.get('datos') is not None and mat_eq not in st.session_state.excluidos:
+                    if mat_eq not in mats_disponibles:
+                        mats_disponibles.append(mat_eq)
+            if mats_disponibles:
+                mats_seleccionados = st.multiselect(
+                    "Seleccioná los materiales con rotulado:",
+                    options=mats_disponibles,
+                    default=[m for m in st.session_state.get('materiales_rotulado', []) if m in mats_disponibles],
+                    key='p6_multiselect_rotulado'
+                )
+                st.session_state.materiales_rotulado = mats_seleccionados
+                if mats_seleccionados:
+                    mats_str = ', '.join(str(m) for m in mats_seleccionados)
+                    st.markdown(
+                        f'<div class="info-box">📋 Leyenda que se agregará al Excel:<br>'
+                        f'<strong>Material {mats_str}: {LEYENDA_ROTULADO}</strong></div>',
+                        unsafe_allow_html=True
+                    )
+            else:
+                st.info("Procesá la operación primero para seleccionar materiales.")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # ══════════════════════════════════════════════════════
+        # SECCIÓN: Generar Anexo
+        # ══════════════════════════════════════════════════════
+        st.markdown('<div class="card"><h3><span class="step-badge">3</span>Generar Anexo</h3>', unsafe_allow_html=True)
+        if st.button("📄 Generar Anexo completo", key='p6_btn_generar'):
             with st.spinner('Generando archivos...'):
                 incluidos_multi = st.session_state.get('incluidos_multi', set())
                 filas_final = []
@@ -1355,7 +1609,23 @@ else:
                             continue
                         f = fila.copy(); f['_skip'] = False
                     elif fila.get('_skip'):
-                        continue
+                        # Verificar si tiene equivalente asignado
+                        equiv = st.session_state.equivalentes.get(mat, {})
+                        if equiv.get('datos') is not None and mat not in st.session_state.excluidos:
+                            # Usar datos del equivalente pero mantener MATERIAL original
+                            f = fila.copy()
+                            f['_skip'] = False
+                            datos_eq = equiv['datos']
+                            f['Marca y Nombre del producto'] = datos_eq.get('Marca y Nombre del producto', '')
+                            f['Variedades']       = datos_eq.get('Variedades', '')
+                            f['Presentación']     = datos_eq.get('Presentación', '')
+                            f['N° de inscripcion']= datos_eq.get('N° de inscripcion', '')
+                            f['Origen']           = datos_eq.get('Origen', '')
+                            f['Fabricante']       = datos_eq.get('Fabricante', '')
+                            f['Posición Arancelaria'] = datos_eq.get('Posición Arancelaria', '')
+                            # MATERIAL original se mantiene (ya está en fila)
+                        else:
+                            continue
                     else:
                         f = fila.copy()
                     if fila.get('_avon'):
@@ -1370,7 +1640,31 @@ else:
                 principal, difusor, muestras, _ = separar_anexos(filas_final)
                 grupos    = [('PRINCIPAL', principal), ('DIFUSOR', difusor), ('MUESTRAS', muestras)]
                 ref       = nro_referencia.strip() if nro_referencia.strip() else invoice
-                zip_bytes = generar_zip(grupos, ref)
+
+                # Rotulado: calcular qué materiales con rotulado caen en cada grupo
+                mats_rotulado_global = list(st.session_state.get('materiales_rotulado', [])) if st.session_state.get('rotulado_activo') else []
+
+                buf_zip = BytesIO()
+                with zipfile.ZipFile(buf_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for nombre_grupo, filas_grupo in grupos:
+                        if not filas_grupo:
+                            continue
+                        # Filtrar materiales rotulados que están en este grupo
+                        mats_en_grupo = {str(f.get('MATERIAL', '')) for f in filas_grupo}
+                        mats_rot_grupo = [m for m in mats_rotulado_global if str(m) in mats_en_grupo] or None
+
+                        nombre_base = f'ANEXO_{nombre_grupo}_{ref}'
+                        xls_completo = escribir_excel_bytes(filas_grupo, incluir_primeras_cols=True,
+                                                            materiales_rotulado=mats_rot_grupo)
+                        zf.writestr(f'{nombre_base}.xlsx', xls_completo)
+                        xls_sin = escribir_excel_bytes(filas_grupo, incluir_primeras_cols=False,
+                                                       materiales_rotulado=mats_rot_grupo)
+                        zf.writestr(f'{nombre_base}_SIN_MAT.xlsx', xls_sin)
+                        pdf = excel_a_pdf_bytes(xls_sin, f'{nombre_base}_SIN_MAT')
+                        if pdf:
+                            zf.writestr(f'{nombre_base}_SIN_MAT.pdf', pdf)
+                buf_zip.seek(0)
+                zip_bytes = buf_zip.getvalue()
 
                 st.markdown('<div class="success-box">✅ Anexo generado correctamente</div>', unsafe_allow_html=True)
                 resumen = [f"**{n}**: {len(fg)} ítems" for n, fg in grupos if fg]
@@ -1381,6 +1675,6 @@ else:
                     data=zip_bytes,
                     file_name=f"ANEXO_{ref}.zip",
                     mime="application/zip",
-                    key='dl_zip'
+                    key='p6_dl_zip'
                 )
         st.markdown('</div>', unsafe_allow_html=True)
