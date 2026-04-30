@@ -570,12 +570,17 @@ def extraer_items_kobo(texto_pdf):
 def extraer_items_aesa_desde_excel(marcas_bytes):
     items = []
     try:
-        df = pd.read_excel(io.BytesIO(marcas_bytes), sheet_name="Pos", dtype=str, skiprows=3)
-        df = df[df["Pos"].str.match(r"^\d+$", na=False)].copy()
+        # Intentar header=4 primero (nuevo formato AESA), fallback a skiprows=3
+        try:
+            df = pd.read_excel(io.BytesIO(marcas_bytes), sheet_name="Pos", dtype=str, header=4)
+            df = df[df["Pos"].str.match(r"^\d+$", na=False) & df["Código SAP del Material"].notna()].copy()
+        except:
+            df = pd.read_excel(io.BytesIO(marcas_bytes), sheet_name="Pos", dtype=str, skiprows=3)
+            df = df[df["Pos"].str.match(r"^\d+$", na=False)].copy()
         for _, row in df.iterrows():
             cod = str(row.get("Código SAP del Material","")).strip()
             cant = limpiar_numero(row.get("Cantidad",0))
-            if not cod or cant == 0: continue
+            if not cod or cod == "nan" or cant == 0: continue
             origen = get_codigo_pais(str(row.get("Origen","brasil")).strip()) or 203
             items.append({
                 "codigo": cod, "descripcion": str(row.get("Descripción","")).strip().replace("\n"," "),
@@ -660,67 +665,15 @@ def extraer_items_pdf(pdf_bytes, proveedor_detectado=None):
         return "generico", extraer_items_hci(texto), texto
 
 def leer_ncm(ncm_file_bytes, nombre_archivo):
-    try:
-        if nombre_archivo.endswith(('.xlsm','.xlsx')):
-            try:
-                df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name="Catálogo", dtype=str, skiprows=2)
-                return dict(zip(df["Código del artículo"].str.strip(), df["NCM"].str.strip()))
-            except: pass
-            try:
-                df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name="Hoja1", dtype=str)
-                cols = df.columns.tolist()
-                if "PART NUMBER" in cols and "PA" in cols:
-                    result = {}
-                    for _, row in df.iterrows():
-                        pn = str(row.get("PART NUMBER","")).strip()
-                        pa = str(row.get("PA","")).strip()
-                        if pn and pa and pa != "nan":
-                            pn_clean = re.sub(r'WARTSILA$', '', pn, flags=re.IGNORECASE).strip()
-                            result[pn_clean] = pa
-                            result[pn] = pa
-                    return result
-                cod_col = next((c for c in cols if "art" in c.lower() or "cod" in c.lower() or "material" in c.lower()), cols[0])
-                ncm_col = next((c for c in cols if "ncm" in c.lower()), cols[1])
-                return dict(zip(df[cod_col].str.strip(), df[ncm_col].str.strip()))
-            except: pass
-            # Formato Clasi (Ashland): header en fila 2
-            try:
-                df = pd.read_excel(io.BytesIO(ncm_file_bytes), dtype=str, header=2)
-                cols = df.columns.tolist()
-                cod_col = next((c for c in cols if "art" in str(c).lower() or "cod" in str(c).lower()), None)
-                ncm_col = next((c for c in cols if "ncm" in str(c).lower()), None)
-                if cod_col and ncm_col:
-                    return dict(zip(df[cod_col].astype(str).str.strip(), df[ncm_col].astype(str).str.strip()))
-            except: pass
-            # Formato AESA Clasificación: solapa Pos, header=4, col "Pos. Aranc."
-            try:
-                df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name="Pos", dtype=str, header=4)
-                df = df[df["Pos"].str.match(r"^\d+$", na=False)]
-                if "Código SAP del Material" in df.columns and "Pos. Aranc." in df.columns:
-                    return dict(zip(df["Código SAP del Material"].astype(str).str.strip(), df["Pos. Aranc."].astype(str).str.strip()))
-            except: pass
-        df = pd.read_excel(io.BytesIO(ncm_file_bytes), dtype=str)
-        cols = df.columns.tolist()
-        if "PART NUMBER" in cols and "PA" in cols:
-            result = {}
-            for _, row in df.iterrows():
-                pn = str(row.get("PART NUMBER","")).strip()
-                pa = str(row.get("PA","")).strip()
-                if pn and pa and pa != "nan":
-                    pn_clean = re.sub(r'WARTSILA$', '', pn, flags=re.IGNORECASE).strip()
-                    result[pn_clean] = pa
-                    result[pn] = pa
-            return result
-        cod_col = next((c for c in cols if "art" in str(c).lower() or "cod" in str(c).lower()), cols[0])
-        ncm_col = next((c for c in cols if "ncm" in str(c).lower()), cols[1])
-        return dict(zip(df[cod_col].astype(str).str.strip(), df[ncm_col].astype(str).str.strip()))
-        # Fallback universal: escanear todas las solapas con múltiples headers
+    """Lee el Excel de NCMs probando múltiples formatos en cascada."""
+    def _fallback_universal(file_bytes):
+        """Escanea todas las solapas con múltiples headers buscando código+NCM."""
         try:
-            xl = pd.ExcelFile(io.BytesIO(ncm_file_bytes))
+            xl = pd.ExcelFile(io.BytesIO(file_bytes))
             for sheet in xl.sheet_names:
                 for header_row in [0, 2, 3, 4]:
                     try:
-                        df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name=sheet, dtype=str, header=header_row)
+                        df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet, dtype=str, header=header_row)
                         cols = df.columns.tolist()
                         cod_col = next((c for c in cols if any(x in str(c).upper() for x in
                             ['CÓDIGO SAP','CODIGO SAP','COD. SAP','MATERIAL','ARTICULO','CATALOG_ID',
@@ -728,37 +681,121 @@ def leer_ncm(ncm_file_bytes, nombre_archivo):
                         ncm_col = next((c for c in cols if any(x in str(c).upper() for x in
                             ['NCM','POS. ARANC','POSICION ARANC','POSICIÓN ARANC','ARANCEL'])), None)
                         if cod_col and ncm_col:
-                            result = dict(zip(
+                            result = {k:v for k,v in zip(
                                 df[cod_col].astype(str).str.strip(),
                                 df[ncm_col].astype(str).str.strip()
-                            ))
-                            result = {k:v for k,v in result.items() if k and k != 'nan' and v and v != 'nan'}
+                            ) if k and k != 'nan' and v and v != 'nan'}
                             if result:
                                 return result
                     except: continue
         except: pass
-        st.warning("No se pudo detectar el formato del Excel de NCMs. Verificá que tenga columnas de código y NCM/posición arancelaria.")
+        return None
+
+    try:
+        # 1. Catálogo (Natura xlsm)
+        try:
+            df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name="Catálogo", dtype=str, skiprows=2)
+            return dict(zip(df["Código del artículo"].str.strip(), df["NCM"].str.strip()))
+        except: pass
+
+        # 2. Hoja1 - Wärtsilä
+        try:
+            df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name="Hoja1", dtype=str)
+            cols = df.columns.tolist()
+            if "PART NUMBER" in cols and "PA" in cols:
+                result = {}
+                for _, row in df.iterrows():
+                    pn = str(row.get("PART NUMBER","")).strip()
+                    pa = str(row.get("PA","")).strip()
+                    if pn and pa and pa != "nan":
+                        pn_clean = re.sub(r'WARTSILA$', '', pn, flags=re.IGNORECASE).strip()
+                        result[pn_clean] = pa
+                        result[pn] = pa
+                return result
+            cod_col = next((c for c in cols if "art" in c.lower() or "cod" in c.lower() or "material" in c.lower()), cols[0])
+            ncm_col = next((c for c in cols if "ncm" in c.lower()), cols[1])
+            return dict(zip(df[cod_col].str.strip(), df[ncm_col].str.strip()))
+        except: pass
+
+        # 3. Clasi Ashland - header=2
+        try:
+            df = pd.read_excel(io.BytesIO(ncm_file_bytes), dtype=str, header=2)
+            cols = df.columns.tolist()
+            cod_col = next((c for c in cols if "art" in str(c).lower() or "cod" in str(c).lower()), None)
+            ncm_col = next((c for c in cols if "ncm" in str(c).lower()), None)
+            if cod_col and ncm_col:
+                return dict(zip(df[cod_col].astype(str).str.strip(), df[ncm_col].astype(str).str.strip()))
+        except: pass
+
+        # 4. AESA Clasificación - solapa Pos, header=4
+        try:
+            df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name="Pos", dtype=str, header=4)
+            df = df[df["Pos"].str.match(r"^\d+$", na=False) & df["Código SAP del Material"].notna()]
+            if "Código SAP del Material" in df.columns and "Pos. Aranc." in df.columns:
+                result = {k:v for k,v in zip(
+                    df["Código SAP del Material"].astype(str).str.strip(),
+                    df["Pos. Aranc."].astype(str).str.strip()
+                ) if k and k != 'nan' and v and v != 'nan'}
+                if result: return result
+        except: pass
+
+        # 5. Fallback universal
+        result = _fallback_universal(ncm_file_bytes)
+        if result:
+            return result
+
+        # 6. Genérico header=0
+        try:
+            df = pd.read_excel(io.BytesIO(ncm_file_bytes), dtype=str)
+            cols = df.columns.tolist()
+            if "PART NUMBER" in cols and "PA" in cols:
+                result = {}
+                for _, row in df.iterrows():
+                    pn = str(row.get("PART NUMBER","")).strip()
+                    pa = str(row.get("PA","")).strip()
+                    if pn and pa and pa != "nan":
+                        pn_clean = re.sub(r'WARTSILA$', '', pn, flags=re.IGNORECASE).strip()
+                        result[pn_clean] = pa
+                        result[pn] = pa
+                return result
+            cod_col = next((c for c in cols if "art" in str(c).lower() or "cod" in str(c).lower()), cols[0])
+            ncm_col = next((c for c in cols if "ncm" in str(c).lower()), cols[1])
+            return dict(zip(df[cod_col].astype(str).str.strip(), df[ncm_col].astype(str).str.strip()))
+        except: pass
+
+        st.warning("No se pudo detectar el formato del Excel de NCMs.")
         return {}
     except Exception as e:
         st.warning(f"Error leyendo NCMs: {e}")
         return {}
 
+
 def leer_marcas_aesa(marcas_file_bytes):
     try:
-        df = pd.read_excel(io.BytesIO(marcas_file_bytes), sheet_name="Pos", dtype=str, skiprows=3)
-        df = df[df["Pos"].str.match(r'^\d+$', na=False)].copy()
+        try:
+            df = pd.read_excel(io.BytesIO(marcas_file_bytes), sheet_name="Pos", dtype=str, header=4)
+            df = df[df["Pos"].str.match(r'^\d+$', na=False) & df["Código SAP del Material"].notna()].copy()
+        except:
+            df = pd.read_excel(io.BytesIO(marcas_file_bytes), sheet_name="Pos", dtype=str, skiprows=3)
+            df = df[df["Pos"].str.match(r'^\d+$', na=False)].copy()
         col_marca = next((c for c in df.columns if "MARCA" in str(c).upper()), None)
         col_cod   = next((c for c in df.columns if "SAP" in str(c).upper() or "Código" in str(c)), None)
         if col_marca and col_cod:
-            return dict(zip(df[col_cod].str.strip(), df[col_marca].str.strip()))
-    except Exception as e:
-        st.warning(f"Error leyendo marcas: {e}")
+            result = {}
+            for _, row in df.iterrows():
+                cod = str(row.get(col_cod,"")).strip()
+                marca = str(row.get(col_marca,"")).strip()
+                if cod and cod != "nan" and marca and marca != "nan":
+                    result[cod] = marca
+            return result
+    except: pass
     return {}
 
 def generar_excel_cme(items, nombre_lote):
     wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Hoja1"
     ws.append(["","Articulo","Descripcion","NCM","Cantidad","Unitario","Total","Origen","Procedencia","Unidad de Venta","Marca","Modelo","PN","Marca/Modelo/Otro"])
     for item in items:
+        if not item.get("codigo") or str(item.get("codigo","")).strip() in ("", "nan"): continue
         ws.append(["", item.get("codigo",""), item.get("descripcion",""), item.get("ncm","SIN NCM"),
                    item.get("cantidad",0), item.get("unitario",0), item.get("total",0),
                    item.get("origen",""), item.get("procedencia",""), item.get("unidad_cod",7),
