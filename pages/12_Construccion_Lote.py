@@ -692,6 +692,13 @@ def leer_ncm(ncm_file_bytes, nombre_archivo):
                 if cod_col and ncm_col:
                     return dict(zip(df[cod_col].astype(str).str.strip(), df[ncm_col].astype(str).str.strip()))
             except: pass
+            # Formato AESA Clasificación: solapa Pos, header=4, col "Pos. Aranc."
+            try:
+                df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name="Pos", dtype=str, header=4)
+                df = df[df["Pos"].str.match(r"^\d+$", na=False)]
+                if "Código SAP del Material" in df.columns and "Pos. Aranc." in df.columns:
+                    return dict(zip(df["Código SAP del Material"].astype(str).str.strip(), df["Pos. Aranc."].astype(str).str.strip()))
+            except: pass
         df = pd.read_excel(io.BytesIO(ncm_file_bytes), dtype=str)
         cols = df.columns.tolist()
         if "PART NUMBER" in cols and "PA" in cols:
@@ -707,6 +714,31 @@ def leer_ncm(ncm_file_bytes, nombre_archivo):
         cod_col = next((c for c in cols if "art" in str(c).lower() or "cod" in str(c).lower()), cols[0])
         ncm_col = next((c for c in cols if "ncm" in str(c).lower()), cols[1])
         return dict(zip(df[cod_col].astype(str).str.strip(), df[ncm_col].astype(str).str.strip()))
+        # Fallback universal: escanear todas las solapas con múltiples headers
+        try:
+            xl = pd.ExcelFile(io.BytesIO(ncm_file_bytes))
+            for sheet in xl.sheet_names:
+                for header_row in [0, 2, 3, 4]:
+                    try:
+                        df = pd.read_excel(io.BytesIO(ncm_file_bytes), sheet_name=sheet, dtype=str, header=header_row)
+                        cols = df.columns.tolist()
+                        cod_col = next((c for c in cols if any(x in str(c).upper() for x in
+                            ['CÓDIGO SAP','CODIGO SAP','COD. SAP','MATERIAL','ARTICULO','CATALOG_ID',
+                             'CÓDIGO DEL ART','CODIGO DEL ART','PART NUMBER'])), None)
+                        ncm_col = next((c for c in cols if any(x in str(c).upper() for x in
+                            ['NCM','POS. ARANC','POSICION ARANC','POSICIÓN ARANC','ARANCEL'])), None)
+                        if cod_col and ncm_col:
+                            result = dict(zip(
+                                df[cod_col].astype(str).str.strip(),
+                                df[ncm_col].astype(str).str.strip()
+                            ))
+                            result = {k:v for k,v in result.items() if k and k != 'nan' and v and v != 'nan'}
+                            if result:
+                                return result
+                    except: continue
+        except: pass
+        st.warning("No se pudo detectar el formato del Excel de NCMs. Verificá que tenga columnas de código y NCM/posición arancelaria.")
+        return {}
     except Exception as e:
         st.warning(f"Error leyendo NCMs: {e}")
         return {}
