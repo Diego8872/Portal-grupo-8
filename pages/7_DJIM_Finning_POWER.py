@@ -80,39 +80,98 @@ def ocr_pdf_bytes(pdf_bytes, label, dpi=250):
 
 def get_text(pdf_bytes, label, dpi=250):
     text = extract_text_pdfplumber(pdf_bytes)
-    # Usar OCR solo si pdfplumber no extrajo nada útil (menos de 50 chars)
-    if not text or len(text.strip()) < 50:
+    chars_utiles = len(re.findall(r'[A-Za-z0-9]', text))
+    if not text or chars_utiles < 30:
         text = ocr_pdf_bytes(pdf_bytes, label, dpi=dpi)
     return text
 
 
+def normalizar_ocr(text):
+    """Corrige errores comunes de OCR antes del parseo."""
+    # 1C04 o 1CO4 → IC04 (I confundida con 1, O confundida con 0)
+    text = re.sub(r'(?<!\d)1([CG])[O0](\d)', r'IC0\2', text, flags=re.IGNORECASE)
+    text = re.sub(r'(?<!\d)1([CG])(\d)', r'I\1\2', text, flags=re.IGNORECASE)
+    # ICO4 → IC04
+    text = re.sub(r'IC[Oo](\d)', r'IC0\1', text)
+    text = re.sub(r'IG[Oo](\d)', r'IG0\1', text)
+    # O73 → 073 (O al inicio de número de aduana)
+    text = re.sub(r'\bO(\d{2})\b', r'0\1', text)
+    return text
+
+
 # ─── PARSEO DI ───
+
+def parsear_nro_despacho(text_upper):
+    m = re.search(r'(\d{2})\s+(\d{3})\s+((?:IC|IG)\d{2})\s+(\d+)\s+([A-Z])(?:\s|$|[^A-Z0-9])', text_upper)
+    if m:
+        return m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+    m = re.search(r'(\d{2})\s+(\d{3})\s+([CG]\d{2})\s+(\d+)\s+([A-Z])(?:\s|$|[^A-Z0-9])', text_upper)
+    if m:
+        return m.group(1), m.group(2), 'I' + m.group(3), m.group(4), m.group(5)
+    m = re.search(r'\*(\d{2})(\d{3})(IC\d{2}|IG\d{2})(\d+)([A-Z])\*', text_upper)
+    if m:
+        return m.groups()
+    return None
+
 
 def parsear_di(text):
     from paises import PAISES
     datos = {}
     alertas = []
 
-    text_norm = re.sub(r'(?<!\d)1([CcGg])(\d{2})', r'I\1\2', text)
+    # Normalizar errores de OCR ANTES de procesar
+    text_norm = normalizar_ocr(text)
     text_norm_upper = text_norm.upper()
 
-    m = re.search(r'(\d{2})\s+(\d{3})\s+((?:IC|IG)\d{2})\s+(\d+)\s+([A-Z])\b', text_norm_upper)
-    if m:
-        anio, aduana, tipo, nro, dc = m.groups()
+    ADUANAS = {
+        'BS.AS. (CAPITAL)': '001', 'BS.AS.(CAPITAL)': '001', 'BUENOS AIRES CAPITAL': '001',
+        'BAHIA BLANCA': '003', 'BARILOCHE': '004', 'CAMPANA': '008',
+        'BARRANQUERAS': '010', 'CLORINDA': '012', 'COLON': '013',
+        'COMODORO RIVADAVIA': '014', 'CONCEPCION DEL URUGUAY': '015',
+        'CONCORDIA': '016', 'CORDOBA': '017', 'CORRIENTES': '018',
+        'PUERTO DESEADO': '019', 'DIAMANTE': '020', 'ESQUEL': '023',
+        'FORMOSA': '024', 'GOYA': '025', 'GUALEGUAYCHU': '026',
+        'IGUAZU': '029', 'JUJUY': '031', 'LA PLATA': '033',
+        'LA QUIACA': '034', 'MAR DEL PLATA': '037', 'MENDOZA': '038',
+        'NECOCHEA': '040', 'PARANA': '041', 'PASO DE LOS LIBRES': '042',
+        'POCITOS': '045', 'POSADAS': '046', 'PUERTO MADRYN': '047',
+        'RIO GALLEGOS': '048', 'RIO GRANDE': '049', 'ROSARIO': '052',
+        'SALTA': '053', 'SAN JAVIER': '054', 'SAN JUAN': '055',
+        'SAN LORENZO': '057', 'SAN NICOLAS': '059', 'SAN PEDRO': '060',
+        'SANTA CRUZ': '061', 'SANTA FE': '062', 'TINOGASTA': '066',
+        'USHUAIA': '067', 'VILLA CONSTITUCION': '069', 'EZEIZA': '073',
+        'TUCUMAN': '074', 'NEUQUEN': '075', 'ORAN': '076',
+        'SAN RAFAEL': '078', 'LA RIOJA': '079', 'SAN ANTONIO OESTE': '080',
+        'SAN LUIS': '083', 'SANTO TOME': '084', 'VILLA REGINA': '085',
+        'OBERA': '086', 'CALETA OLIVIA': '087', 'GENERAL DEHEZA': '088',
+        'SANTIAGO DEL ESTERO': '089', 'GENERAL PICO': '090',
+        'BS.AS. NORTE': '091', 'BS.AS. SUR': '092', 'RAFAELA': '093',
+        'MULTIADUANA': '099',
+    }
+
+    result = parsear_nro_despacho(text_norm_upper)
+    if result:
+        anio, aduana, tipo, nro, dc = result
         datos['nro_despacho'] = f"{tipo}{nro}{dc}"
         datos['anio'] = anio
-        datos['id_aduana'] = aduana
+        id_aduana = aduana
+        for nombre_aduana, codigo_aduana in ADUANAS.items():
+            if nombre_aduana in text_norm_upper:
+                id_aduana = codigo_aduana
+                break
+        datos['id_aduana'] = id_aduana
     else:
         alertas.append("❌ No se encontró número de despacho en el DI.")
-        dados = {'nro_despacho': '', 'anio': '', 'id_aduana': ''}
-        datos.update(dados)
+        datos['nro_despacho'] = ''
+        datos['anio'] = ''
+        datos['id_aduana'] = ''
 
-    fechas = re.findall(r'\b(\d{2}/\d{2}/\d{4})\b', text)
+    fechas = re.findall(r'\b(\d{2}/\d{2}/\d{4})\b', text_norm)
     datos['fecha_nac'] = fechas[0] if fechas else ''
     if not fechas:
         alertas.append("❌ No se encontró fecha de oficialización en el DI.")
 
-    cuits = re.findall(r'\b(\d{2}-\d{8}-\d)\b', text)
+    cuits = re.findall(r'\b(\d{2}-\d{8}-\d)\b', text_norm)
     if cuits:
         datos['cuit_importador'] = cuits[0]
         datos['cuit_comprador'] = cuits[0]
@@ -125,7 +184,7 @@ def parsear_di(text):
     if len(cuits) < 2:
         alertas.append("⚠️ No se encontró CUIT del despachante. Se usará el valor por defecto.")
 
-    m = re.search(r'(FINNING\s+\S+(?:\s+\S+){1,3})', text.upper())
+    m = re.search(r'(FINNING\s+\S+(?:\s+\S+){1,3})', text_norm.upper())
     datos['importador'] = m.group(1).strip() if m else 'FINNING SOLUCIONES MINERAS SA'
 
     datos['pais_procedencia'] = ''
@@ -162,7 +221,7 @@ def parsear_di(text):
 
     datos['regimen'] = '20'
 
-    m = re.search(r'ZA\(0*(\d{4})\)', text)
+    m = re.search(r'ZA\(0*(\d{4})\)', text_norm)
     datos['anio_fab_di'] = m.group(1) if m else ''
 
     return datos, alertas
@@ -206,22 +265,18 @@ def parsear_dnrpa(text, label=""):
 # ─── PARSEO FACTURA ───
 
 def parsear_facturas_streaming(fc_files, n_engines):
-    """Procesa facturas página por página, para cuando encuentra todos los UNIQUE IDs."""
     motores = []
     for fc_f in fc_files:
         if len(motores) >= n_engines:
             break
         fc_bytes = fc_f.read()
-        # Intentar texto nativo primero
         text_total = extract_text_pdfplumber(fc_bytes)
         if text_total and len(text_total.strip()) > 50:
-            # PDF nativo: buscar todos los UNIQUE IDs de una vez
             for line in text_total.split('\n'):
                 uid = re.search(r'UNIQUE\s+ID[:\s]+([A-Z0-9]+)', line, re.IGNORECASE)
                 if uid and uid.group(1) not in motores:
                     motores.append(uid.group(1))
         else:
-            # PDF escaneado: OCR página por página
             try:
                 with pdfplumber.open(BytesIO(fc_bytes)) as pdf:
                     total_pages = len(pdf.pages)
@@ -349,7 +404,6 @@ def generar_excel(di, items_procesados, lcm_valor):
     ws['D35'] = 'CAPITAL FEDERAL'
     ws['E37'] = datetime.datetime.now()
 
-    # Aduana
     ADUANAS_NOMBRE = {
         '001': '001-BS.AS. CAPITAL', '003': '003-BAHIA BLANCA', '004': '004-BARILOCHE',
         '008': '008-CAMPANA', '017': '017-CORDOBA', '029': '029-IGUAZU',
@@ -491,7 +545,6 @@ if st.button("⚙️ Procesar y Generar", type="primary", use_container_width=Tr
                 f"solo {len(motores_factura)} UNIQUE ID(s). Verificar manualmente."
             )
 
-        # Guardar en session_state ANTES del stop
         st.session_state['resultado_txt'] = generar_txt(di_datos, items_procesados, lcm_valor)
         if os.path.exists(TEMPLATE_PATH):
             excel_buf = generar_excel(di_datos, items_procesados, lcm_valor)
@@ -523,7 +576,7 @@ if st.button("⚙️ Procesar y Generar", type="primary", use_container_width=Tr
                 'motor': item.get('motor',''),
             })
 
-# ── DESCARGAS PERSISTENTES (después de procesar) ──
+# ── DESCARGAS PERSISTENTES ──
 if 'resultado_txt' in st.session_state or 'resultado_excel' in st.session_state:
     st.markdown('<p class="section-title">4 · Descargar</p>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
