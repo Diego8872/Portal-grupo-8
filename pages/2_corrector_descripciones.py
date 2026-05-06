@@ -333,57 +333,77 @@ Descripciones:
         return {}
 
 def detectar_equipo_groq(modelo, descripciones):
-    """Usa Groq para detectar referencia a equipos en descripciones ambiguas."""
+    """Usa Groq para detectar y separar referencia a equipos en descripciones."""
     lista = "\n".join([f"{i+1}. {d}" for i, d in enumerate(descripciones)])
-    prompt = f"""Sos un experto en repuestos de maquinaria pesada (Caterpillar, Komatsu, SEM, etc).
+    prompt = f"""Sos un experto en repuestos de maquinaria pesada (CAT, Komatsu, SEM, Volvo, etc).
 
-Para cada descripción, determiná si menciona el equipo donde se usa el repuesto.
-Si menciona un equipo, separalo del resto de la descripción.
+Para cada descripción de repuesto, identificá si menciona en qué equipo o máquina se usa.
+Devolvé SOLO la referencia al equipo. Si no hay equipo mencionado, devolvé vacío.
 
-FORMATO DE RESPUESTA — una línea por item:
-- Si HAY referencia a equipo: número|descripción sin equipo|referencia al equipo
-- Si NO HAY referencia: número|sin equipo|
+REGLAS IMPORTANTES:
+- Solo extraer marca/modelo/tipo de equipo (CAT 793, Cargador 972K, Excavadora 320, etc)
+- Si el nombre del equipo es PARTE del nombre del repuesto, NO extraer (ej: "Brazo de escobilla de motoniveladora" → vacío)
+- Si solo dice "Caterpillar" o "CAT" como marca genérica al final → extraer
+- Si dice "equipos varios CAT" o "equipos mineros" → extraer
+- Si dice "para freno", "para manguera", "para transmisión" → vacío (son partes, no equipos)
+- IMPORTANTE: Responder exactamente el número de items recibidos, en orden
 
-Ejemplos:
-"Pestillo acero para tapa de cajon de bateria cargador frontal 950M"
-→ 1|Pestillo de acero para tapa de cajón de batería|cargador frontal 950M
+EJEMPLOS:
+"Bulón de acero (M10X1.25) Caterpillar" → Caterpillar
+"Válvula de solenoide. Topadores D6" → Topadores D6  
+"Conjunto del alternador, equipos varios CAT" → equipos varios CAT
+"Retén de caucho, mando final de Cargador SEM 636D" → Cargador SEM 636D
+"Filtro de aceite de cargador frontal 972K" → cargador frontal 972K
+"CINTURON DE SEGURIDAD PARA EQUIPOS MINEROS" → equipos mineros
+"acople de INOX, cat 777 CAMION" → cat 777 CAMION
+"Sensor de presión Cat de 5V, 48-120 kPa" → 
+"BOMBA DE ENGRANAJES PARA FRENO" → 
+"BRAZO DE ESCOBILLA DE CABINA DE MOTONIVELADORA" → 
+"Turbocargador de motor diesel 3516 de camion 793C" → camion 793C
+"Carcasa de acero, parte de transmisión de cargador SEM655" → cargador SEM655
+"Medidor de nivel hidráulico. Aplica a Sistema de Equipo Cargador 966" → Equipo Cargador 966
+"Correa de caucho para poleas de motor de equipos mineros" → equipos mineros
+"ESPACIADOR DE ACERO APLICADO A SISTEMA ELECTRICO DE CAT 990H" → CAT 990H
 
-"Pista de ruleman conico de acero inox de transmision de topador cat d9"  
-→ 2|Pista de rodamiento cónico de acero inoxidable de transmisión|topador CAT D9
+FORMATO ESTRICTO — exactamente una línea por item, en el mismo orden:
+1|equipo o vacío
+2|equipo o vacío
+...
 
-"ANILLO TORICO DE NYLON CILINDRO DE ELEVACION CARGADOR 966"
-→ 3|Anillo tórico de nylon cilindro de elevación|Cargador 966
-
-"Tornillo de acero M10"
-→ 4|Tornillo de acero M10|
-
-Descripciones:
+Descripciones ({len(descripciones)} items):
 {lista}"""
 
     try:
         response = modelo.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
+            temperature=0.0,
         )
         texto = response.choices[0].message.content.strip()
         resultados = {}
+        VACIOS = {"ninguno","(ninguno)","none","-","vacío","(vacío)","vacio",
+                  "(vacio)","","sin equipo","(sin equipo)","n/a","na","no"}
         for linea in texto.split("\n"):
             linea = linea.strip()
             if not linea: continue
             partes = linea.split("|")
-            if len(partes) >= 3:
+            if len(partes) >= 1:
                 try:
-                    idx = int(re.match(r'(\d+)', partes[0]).group(1)) - 1
-                    desc_limpia = partes[1].strip()
-                    equipo = partes[2].strip()
-                    if desc_limpia:
-                        resultados[idx] = (desc_limpia, equipo)
+                    m = re.match(r'(\d+)[|.)]\s*(.*)', linea)
+                    if not m: continue
+                    idx = int(m.group(1)) - 1
+                    equipo = m.group(2).strip() if len(partes) >= 2 else ""
+                    equipo = partes[1].strip() if len(partes) >= 2 else ""
+                    equipo = "" if equipo.lower().strip("().") in VACIOS else equipo
+                    # Validar que el índice sea válido
+                    if 0 <= idx < len(descripciones):
+                        resultados[idx] = ("", equipo)
                 except:
                     pass
         return resultados
     except:
         return {}
+
 
 def separar_palabras_pegadas(texto, modelo=None):
     """Separa palabras pegadas usando Gemini si disponible, sino diccionario."""
@@ -474,7 +494,12 @@ CORRECCIONES_ORTOGRAFIA = {
 # ── Funciones ──────────────────────────────────────────────
 
 def limpiar_url(texto):
-    return re.sub(r'https?://\S+', '', texto).strip()
+    # Limpiar caracteres raros de Excel
+    texto = texto.replace('_x000D_', '').replace('\xa0', ' ')
+    # Limpiar URLs con guión antes
+    texto = re.sub(r'\s*-\s*https?://\S+', '', texto)
+    texto = re.sub(r'https?://\S+', '', texto)
+    return re.sub(r'\s+', ' ', texto).strip()
 
 def limpiar_codigo_interno(texto):
     """Elimina códigos internos tipo SEAL_EXHAUST_1974834.
@@ -544,41 +569,21 @@ PATRON_CORTE_EQUIPO = re.compile(
     r')')
 
 # Nombres de equipos conocidos para detección directa
-NOMBRES_EQUIPOS = re.compile(r'''(?ix)
-    ,?\s*
-    (
-        cargador\s+frontal | cargador\s+a\s+frontal | minicargador |
-        excavadora | motoniveladora | topador | tractor\s+topador |
-        camion\s+minero | camion | volquete | retroexcavadora |
-        compactador | pavimentador | terminadora | motogenerador |
-        grupo\s+electr[oó]geno | generador | tren\s+de\s+potencia |
-        cargadora | manipulador | perforadora
-    )
-    [\s,]+
-    [\w\s\-\/\.]{1,30}         # modelo/número después del equipo
-''')
-
 def extraer_equipo(texto):
-    """Extrae referencia al equipo usando regex (A) y marca para Groq (B)."""
+    """Extrae referencia al equipo usando regex."""
     texto = texto.replace('\n', ' ').replace('\r', ' ')
     texto = re.sub(r'\s+', ' ', texto).strip()
     
-    # OPCION A1 — patrones de frase clave
     match = PATRON_CORTE_EQUIPO.search(texto)
     if match:
         desc_limpia = texto[:match.start()].strip().rstrip(',').strip()
         equipo = texto[match.start():].strip().lstrip(',').strip()
-        return desc_limpia, equipo, False  # False = no necesita Groq
+        # Validar que la descripción no quedó vacía o muy corta
+        if len(desc_limpia) > 5:
+            return desc_limpia, equipo, False
     
-    # OPCION A2 — nombre de equipo conocido al final
-    match2 = NOMBRES_EQUIPOS.search(texto)
-    if match2:
-        desc_limpia = texto[:match2.start()].strip().rstrip(',').strip()
-        equipo = texto[match2.start():].strip().lstrip(',').strip()
-        return desc_limpia, equipo, False
-    
-    # OPCION B — marcar para Groq si descripción es larga y compleja
-    necesita_groq = len(texto) > 40
+    # Marcar para Groq todas las descripciones largas
+    necesita_groq = len(texto) > 30
     return texto, "", necesita_groq
 
 def corregir_ortografia(texto):
@@ -923,26 +928,29 @@ if archivo:
             
             status_text.markdown(f"🤖 IA procesó **{len(descripciones_ia)}** descripciones")
             
-            # PASO 1B: detectar equipos con Groq en casos ambiguos
+            # PASO 1B: detectar equipos con Groq en TODAS las descripciones
             status_text.markdown("🔍 **Paso 1B/2:** Detectando referencias a equipos...")
-            indices_sin_equipo = []
-            descs_sin_equipo = []
+            indices_equipo = []
+            descs_equipo = []
             for i, row in df.iterrows():
                 desc = str(row[col_desc]).strip() if pd.notna(row[col_desc]) else ""
                 if not desc or desc == "nan": continue
-                _, _, necesita = extraer_equipo(desc)
-                if necesita:
-                    indices_sin_equipo.append(i)
-                    descs_sin_equipo.append(desc)
+                # Usar descripción ya procesada por IA si existe
+                desc_proc = descripciones_ia.get(i, desc)
+                indices_equipo.append(i)
+                descs_equipo.append(desc_proc)
             
             equipos_groq = {}
-            for batch_start in range(0, len(descs_sin_equipo), LOTE):
-                batch_idx = indices_sin_equipo[batch_start:batch_start+LOTE]
-                batch_desc = descs_sin_equipo[batch_start:batch_start+LOTE]
+            for batch_start in range(0, len(descs_equipo), LOTE):
+                batch_idx = indices_equipo[batch_start:batch_start+LOTE]
+                batch_desc = descs_equipo[batch_start:batch_start+LOTE]
                 resultados_eq = detectar_equipo_groq(modelo_ia, batch_desc)
                 for j, idx_orig in enumerate(batch_idx):
                     if j in resultados_eq:
                         equipos_groq[idx_orig] = resultados_eq[j]
+                prog_eq = min((batch_start + LOTE) / max(len(descs_equipo), 1), 1.0)
+                progress_bar.progress(0.5 + prog_eq * 0.25)
+            status_text.markdown(f"🔍 Equipos detectados en **{len(equipos_groq)}** descripciones")
 
         if not modelo_ia:
             equipos_groq = {}
@@ -953,7 +961,7 @@ if archivo:
             codigo = str(row[col_codigo]).strip()
             desc_original = str(row[col_desc]).strip() if pd.notna(row[col_desc]) else ""
 
-            progress_bar.progress(0.5 + (i + 1) / total * 0.5 if modelo_ia else (i + 1) / total)
+            progress_bar.progress(0.75 + (i + 1) / total * 0.25 if modelo_ia else (i + 1) / total)
             status_text.markdown(f"⚙️ Procesando **{i+1} de {total}**: `{codigo}`")
 
             if not desc_original or desc_original == "nan":
@@ -961,20 +969,28 @@ if archivo:
                 log_lines.append(f"⬜ [{i+1:03d}] {codigo} → Sin descripción")
             else:
                 # Si IA ya procesó esta descripción, usarla como base
-                if i in descripciones_ia:
-                    desc_para_procesar = descripciones_ia[i]
-                    corregida, errores, keywords, equipo, _ = procesar_descripcion(desc_para_procesar)
-                    if "separado" not in errores.lower():
-                        errores = ("separado/traducido por IA | " + errores).rstrip(" | ").replace("Sin errores", "").strip(" | ") or "separado/traducido por IA"
-                else:
-                    corregida, errores, keywords, equipo, _ = procesar_descripcion(desc_original)
+                # Usar descripción procesada por IA si existe
+                desc_base = descripciones_ia.get(i, desc_original)
+                corregida, errores, keywords, equipo, _ = procesar_descripcion(desc_base)
+                if i in descripciones_ia and "separado" not in errores.lower():
+                    errores = ("separado/traducido por IA | " + errores).rstrip(" | ").replace("Sin errores", "").strip(" | ") or "separado/traducido por IA"
                 
-                # Si Groq detectó equipo en casos ambiguos, usarlo
-                if not equipo and i in equipos_groq:
-                    desc_groq, equipo_groq = equipos_groq[i]
-                    if equipo_groq:
+                # Groq detecta el equipo — actualizar Equipo/Uso Y limpiar descripción
+                if i in equipos_groq:
+                    _, equipo_groq = equipos_groq[i]
+                    if equipo_groq and len(equipo_groq) < len(corregida):
                         equipo = equipo_groq
-                        corregida = desc_groq
+                        # Eliminar el equipo de la descripción corregida
+                        # Buscar el texto del equipo (case-insensitive) y cortar desde ahí
+                        idx_eq = corregida.lower().rfind(equipo_groq.lower()[:25])
+                        if idx_eq > 10:  # Solo cortar si queda algo antes
+                            corregida = corregida[:idx_eq].strip().rstrip(',.').strip()
+                
+                # Siempre limpiar URL de la descripción corregida final
+                corregida = limpiar_url(corregida)
+                # Asegurar capitalización
+                if corregida:
+                    corregida = corregida[0].upper() + corregida[1:]
                 
                 resultados.append({"codigo": codigo, "original": desc_original, "errores": errores, "keywords": keywords, "corregida": corregida, "equipo": equipo})
                 icono = "⚠️" if keywords else ("✅" if errores == "Sin errores" else "✏️")
