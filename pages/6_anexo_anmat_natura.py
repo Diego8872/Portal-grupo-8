@@ -115,24 +115,49 @@ def cargar_pl(file_bytes):
         df = pd.read_excel(tmp, sheet_name=sh, header=None)
         header_row = None
         for i, row in df.iterrows():
-            if 'MATERIAL CODE' in str(row.values):
+            row_str = ' '.join(str(v).replace('\n', ' ').upper() for v in row.values if pd.notna(v))
+            if 'MATERIAL CODE' in row_str or 'MATERIAL\nCODE' in str(row.values):
                 header_row = i
                 break
         if header_row is None:
             continue
         if not invoice:
             for i, row in df.iterrows():
-                for val in row.values:
-                    if 'Nº INVOICE:' in str(val) or 'N° INVOICE:' in str(val):
-                        idx = list(row.values).index(val)
-                        if idx + 1 < len(row.values):
-                            invoice = str(row.values[idx + 1]).strip()
+                vals = list(row.values)
+                for j, val in enumerate(vals):
+                    val_str = str(val).replace('\n', ' ')
+                    if 'Nº INVOICE:' in val_str or 'N° INVOICE:' in val_str:
+                        parte = val_str.split(':', 1)[1].strip()
+                        if parte and parte != 'nan':
+                            invoice = parte
+                            break
+                        for k in range(j + 1, len(vals)):
+                            v = str(vals[k]).strip()
+                            if v and v != 'nan':
+                                invoice = v
+                                break
                         break
                 if invoice:
                     break
-        data = df.iloc[header_row + 2:].copy().reset_index(drop=True)
+        data_start = header_row + 1
+        if data_start < len(df):
+            primera = df.iloc[data_start]
+            tiene_numeros = any(str(v).strip().isdigit() or (len(str(v).strip()) >= 5 and str(v).strip().replace('.','').isdigit()) for v in primera.values if pd.notna(v))
+            if not tiene_numeros:
+                data_start += 1
+        data = df.iloc[data_start:].copy().reset_index(drop=True)
         data.columns = range(len(data.columns))
-        data = data[data[1].astype(str).str.match(r'^\d{5,}$')]
+        col_mat = 1
+        for col_idx in range(min(4, len(data.columns))):
+            muestra = data[col_idx].dropna().astype(str)
+            if muestra.str.match(r'^\d{5,}').sum() > 0:
+                col_mat = col_idx
+                break
+        data = data[data[col_mat].astype(str).str.match(r'^\d{5,}$')]
+        if col_mat != 1 and len(data) > 0:
+            cols = list(data.columns)
+            cols[1], cols[col_mat] = cols[col_mat], cols[1]
+            data = data[cols]
         rows.append(data)
     pl = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
     return pl, invoice
@@ -280,8 +305,21 @@ def cargar_proximas(file_bytes, filename=''):
             tmp = f.name
         df = pd.read_excel(tmp, header=0)
         col_map = {c.strip().lower(): c for c in df.columns}
-        if 'material' in col_map:
-            df = df.rename(columns={col_map['material']: 'Material'})
+        col_mat = None
+        for posible in ['material', 'código de sku', 'codigo de sku', 'sku',
+                        'cod. material', 'codigo material', 'código material',
+                        'article', 'artículo', 'articulo', 'material code',
+                        'item', 'código', 'codigo']:
+            if posible in col_map:
+                col_mat = col_map[posible]
+                break
+        if col_mat and col_mat != 'Material':
+            df = df.rename(columns={col_mat: 'Material'})
+        elif 'Material' not in df.columns:
+            for col in df.columns:
+                if df[col].dropna().astype(str).str.match(r'^\d{5,}').any():
+                    df = df.rename(columns={col: 'Material'})
+                    break
         df['Material'] = df['Material'].astype(str).str.strip()
         return df, False, True, None
 
