@@ -8,6 +8,16 @@ from collections import Counter
 import io
 
 # ─────────────────────────────────────────────
+# CONFIG
+# ─────────────────────────────────────────────
+st.set_page_config(
+    page_title="INTERLOG · KPI Dashboard",
+    page_icon="📦",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# ─────────────────────────────────────────────
 # ESTILOS
 # ─────────────────────────────────────────────
 st.markdown("""
@@ -60,6 +70,7 @@ thead tr th { background: #007A65 !important; color: white !important; }
 }
 .stButton > button:hover { background: #00E0BA; transform: translateY(-1px); }
 
+/* Nav — botón invisible superpuesto sobre el div decorativo */
 div[data-testid="stButton"].nav-clickable > button {
     position: absolute !important;
     top: 0 !important; left: 0 !important;
@@ -83,6 +94,7 @@ div[data-testid="stButton"].nav-clickable > button:hover {
 footer    {visibility: hidden;}
 header    {visibility: hidden;}
 
+/* File uploader */
 [data-testid="stFileUploader"] {
     background: #1A2E48 !important; border: 2px solid #00C9A7 !important;
     border-radius: 8px !important; padding: 0.5rem !important;
@@ -128,14 +140,14 @@ CHART_LAYOUT = dict(
 def _init_state():
     defaults = {
         'step': 1,
-        'max_step': 1,
+        'max_step': 1,          # hasta dónde llegó el usuario
         'lib_items': [],
         'ofi_items': [],
         'cm_pre_items': [],
         'cm_apr_items': [],
         'mes': '',
         'desvio_sub_step': 'descargar',
-        'confirm_replace': False,
+        'confirm_replace': False,  # flag para confirmación de reemplazo
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -157,6 +169,10 @@ def go_to(step):
 # HELPERS
 # ─────────────────────────────────────────────
 def parse_date(val):
+    if val is None: return None
+    try:
+        if pd.isnull(val): return None
+    except: pass
     if isinstance(val, datetime): return val
     if isinstance(val, str):
         for fmt in ['%d/%m/%Y %H:%M:%S', '%d/%m/%Y', '%Y-%m-%d']:
@@ -201,6 +217,7 @@ def procesar_liberadas(df):
     for _, r in df.iterrows():
         razon = r.get('Razon Social', '')
         via   = str(r.get('Via', '')).upper().strip()
+        via   = 'MARITIMO' if via == 'ACUATICO' else via
         canal = str(r.get('Canal', '')).upper().strip()
         f_ofi = parse_date(r.get('Fecha Oficialización'))
         f_can = parse_date(r.get('Fecha Cancelada'))
@@ -735,6 +752,7 @@ st.markdown(f"""
 # ─────────────────────────────────────────────
 # NAV BAR INTERACTIVO
 # ─────────────────────────────────────────────
+# Definición de steps y sus condiciones de acceso
 nav_steps = [
     {"label": "📁 Cargar archivos",  "step": 1, "always": True},
     {"label": "⚠️ Revisar desvíos", "step": 2, "always": False},
@@ -747,16 +765,29 @@ max_step      = st.session_state.max_step
 
 nav_cols = st.columns([3, 3, 3, 3, 2])
 
+# CSS inyectado una vez, apuntando a cada botón por su key
+# Streamlit renderiza el key como data-testid en el botón interno
 nav_css_parts = []
 for nav in nav_steps:
     s          = nav["step"]
     accessible = nav["always"] or max_step >= s
     is_active  = current_step == s
     is_done    = max_step >= s and not is_active
+
+    sel = f'button[data-testid="baseButton-secondary"][key="nav_{s}"], [data-testid="stBaseButton-secondary"][aria-label*="nav_{s}"]'
+
+    # Selector real que funciona en Streamlit: apuntar por el texto del botón no es confiable,
+    # pero sí podemos usar nth-of-type dentro del bloque de columnas.
+    # Usamos el ID del contenedor que Streamlit genera a partir del key.
+    # La forma más robusta: inyectar el CSS justo antes del botón con un selector +:
+    # En su lugar, generamos un <style> con un id único por step y lo vinculamos
+    # al div wrapper que sí podemos controlar.
     pass
 
+# Generar CSS global con selectores de clase que envuelven cada botón
 st.markdown("""
 <style>
+/* Base compartido */
 .snav div[data-testid="stButton"] > button {
     font-family: 'Barlow Condensed', sans-serif !important;
     font-size: 0.9rem !important;
@@ -847,6 +878,7 @@ st.markdown("<div style='margin-top:1.2rem;'></div>", unsafe_allow_html=True)
 # ══════════════════════════════════════════════
 if st.session_state.step == 1:
 
+    # Si ya hay datos cargados, mostrar aviso
     if has_data:
         st.markdown(f"""
         <div style="background:rgba(255,208,96,0.1); border:1px solid rgba(255,208,96,0.4);
@@ -879,6 +911,7 @@ if st.session_state.step == 1:
     if archivos_ok:
         st.markdown('<div class="alert-success">✅ Los 4 archivos cargados correctamente</div><br>', unsafe_allow_html=True)
 
+    # Confirmación de reemplazo
     if st.session_state.confirm_replace:
         st.markdown("""
         <div style="background:rgba(255,61,94,0.1); border:1px solid rgba(255,61,94,0.5);
@@ -917,6 +950,7 @@ if st.session_state.step == 1:
 
     elif st.button("▶  PROCESAR Y CONTINUAR", disabled=not archivos_ok):
         if has_data:
+            # Pedir confirmación
             st.session_state.confirm_replace = True
             st.rerun()
         else:
@@ -1101,6 +1135,7 @@ elif st.session_state.step == 2:
 # STEP 3 — DASHBOARD
 # ══════════════════════════════════════════════
 elif st.session_state.step == 3:
+    # Asegurar max_step
     st.session_state.max_step = max(st.session_state.max_step, 3)
 
     lib_items    = st.session_state.lib_items
