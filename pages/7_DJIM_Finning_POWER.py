@@ -85,6 +85,15 @@ def get_text(pdf_bytes, label, dpi=250):
         text = ocr_pdf_bytes(pdf_bytes, label, dpi=dpi)
     return text
 
+def get_text_di(pdf_bytes, label, dpi=250):
+    """Para DI: pdfplumber primero, OCR si no tiene CUIT ni fecha."""
+    text = extract_text_pdfplumber(pdf_bytes)
+    tiene_cuit = bool(re.search(r'\d{2}-\d{8}-\d', text))
+    tiene_fecha = bool(re.search(r'\d{2}/\d{2}/\d{4}', text))
+    if not tiene_cuit or not tiene_fecha:
+        text = ocr_pdf_bytes(pdf_bytes, label, dpi=dpi)
+    return text
+
 
 def normalizar_ocr(text):
     """Corrige errores comunes de OCR antes del parseo."""
@@ -497,7 +506,7 @@ if st.button("⚙️ Procesar y Generar", type="primary", use_container_width=Tr
 
     with st.spinner("Procesando documentos..."):
         di_bytes = di_file.read()
-        di_text = get_text(di_bytes, "di", dpi=250)
+        di_text = get_text_di(di_bytes, "di", dpi=150)
         di_datos, di_alertas = parsear_di(di_text)
 
         n_engines = sum(1 for t in tipos_seleccionados if t == 'ENGINE')
