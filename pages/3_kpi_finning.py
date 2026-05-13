@@ -238,6 +238,7 @@ def procesar_oficializados(df):
     for _, r in df.iterrows():
         razon = r.get('Razon Social', '')
         via   = str(r.get('Via', '')).upper().strip()
+        via   = 'MARITIMO' if via == 'ACUATICO' else via
         f_ofi = parse_date(r.get('Fecha Oficialización'))
         f_ult = parse_date(r.get('Ultimo Evento'))
         dias  = dias_habiles(f_ofi, f_ult)
