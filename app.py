@@ -166,7 +166,7 @@ projects = [
     },
     {
         "icon": "🌍",
-        "name": "UE-Mercosur — Normativa y Consultas",
+        "name": "UE-Mercosur — Normativa",
         "tag": "Normativa",
         "desc": "Consultá el texto del acuerdo, impactos arancelarios y análisis sobre el Acuerdo de Asociación entre la Unión Europea y el Mercosur. Fuentes verificadas.",
         "page": "pages/14_Acuerdo_EU_Mercosur.py"
