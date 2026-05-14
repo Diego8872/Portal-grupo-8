@@ -4,6 +4,7 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 import re
 import io
+import unicodedata
 import subprocess
 import sys
 
@@ -501,6 +502,68 @@ def limpiar_url(texto):
     texto = re.sub(r'https?://\S+', '', texto)
     return re.sub(r'\s+', ' ', texto).strip()
 
+
+def normalizar_texto(s):
+    """Elimina acentos para comparación."""
+    return unicodedata.normalize('NFD', s).encode('ascii', 'ignore').decode('ascii').lower()
+
+EQUIPOS_PALABRAS_SET = {"camion","cargador","excavadora","motoniveladora","topador",
+                        "tractor","minicargador","compactador","generador","retroexcavadora",
+                        "maquina","equipo","equipos","motor","manipulador",
+                        "martillo","motopala","perforadora","volquete"}
+
+EQUIPOS_RE_STR = r'(?:manipulador(?:\s+telescopico)?|camion(?:es)?(?:\s+(?:fuera\s+de\s+ruta|minero))?|camión(?:es)?(?:\s+(?:fuera\s+de\s+ruta|minero))?|cargador(?:a)?(?:\s+frontal)?|excavadora|motoniveladora|topador|tractor|minicargador|compactador|generador|motogenerador|perforadora|retroexcavadora|motopala|martillo|maquina(?:s)?|máquina(?:s)?|equipo(?:s)?|motor(?:\s+(?:diesel|a\s+gas|\d{3,4}[A-Z]?))|cat(?:erpillar)?|sem\b)'
+PATRON_PREP_EQUIPO_FINAL = re.compile(
+    rf'(?i)(?:,\s*|\s+)[.\s]*\b(?:en|de|para|del)\s+[.]?{EQUIPOS_RE_STR}[\w\s\-\/,.]*$'
+)
+
+def limpiar_equipo_de_desc(corregida, equipo_groq):
+    """Elimina la referencia al equipo de la descripción, incluyendo la preposición."""
+    if not equipo_groq or not corregida: return corregida
+    
+    # Limpiar trailing preposiciones/puntos sueltos
+    desc = re.sub(r'(?i)\s*[.]\s*$', '', corregida.strip())
+    desc = re.sub(r'(?i)\s+\b(de|en|para|del|con)\s*[.]?\s*$', '', desc.strip()).strip().rstrip(',.')
+    
+    # Paso 1: preposición + equipo conocido al final
+    match = PATRON_PREP_EQUIPO_FINAL.search(desc)
+    if match and match.start() > 5:
+        resultado = desc[:match.start()].strip().rstrip(',.').strip()
+        if len(resultado) > 5: return resultado
+    
+    # Paso 2: modelo numérico al final con equipo conocido antes
+    m_modelo = re.search(r'(?i)\s+([A-Za-zÁÉÍÓÚáéíóú]+)\s+(?:[A-Z]{1,4})?\d{2,4}[A-Z]?\s*$', desc)
+    if m_modelo:
+        palabra_antes = normalizar_texto(m_modelo.group(1))
+        if palabra_antes in EQUIPOS_PALABRAS_SET:
+            idx_corte = m_modelo.start()
+            texto_antes = desc[:idx_corte].rstrip()
+            mp = re.search(r'(?i)\s+\b(en|de|para|del)\s*$', texto_antes)
+            resultado = desc[:mp.start()].strip().rstrip(',.').strip() if mp else texto_antes.strip().rstrip(',.').strip()
+            if len(resultado) > 5: return resultado
+    
+    # Paso 3: modelo solo al final — cortar solo el modelo
+    m_eq_modelo = re.search(r'(?:[A-Z]{1,4})?\d{2,4}[A-Z]?$', equipo_groq.strip())
+    if m_eq_modelo:
+        modelo = m_eq_modelo.group(0)
+        if re.search(r'\d', modelo):
+            idx = desc.rfind(modelo)
+            if idx > 10 and desc[idx:].strip() == modelo:
+                resultado = desc[:idx].strip().rstrip(',.').strip()
+                if len(resultado) > 5: return resultado
+    
+    # Paso 4: búsqueda normalizada
+    desc_norm = normalizar_texto(desc)
+    buscar_norm = normalizar_texto(equipo_groq[:25])
+    idx = desc_norm.rfind(buscar_norm)
+    if idx > 10:
+        texto_antes = desc[:idx].rstrip()
+        m = re.search(r'(?i)\s+\b(en|de|para|del|con)\s*[.]?\s*$', texto_antes)
+        resultado = desc[:m.start()].strip().rstrip(',.').strip() if m else desc[:idx].strip().rstrip(',.').strip()
+        if len(resultado) > 5: return resultado
+    
+    return desc
+
 def limpiar_codigo_interno(texto):
     """Elimina códigos internos tipo SEAL_EXHAUST_1974834.
     Si el texto es SOLO un código, extrae las palabras descriptivas y las traduce."""
@@ -977,14 +1040,10 @@ if archivo:
                 
                 # Groq detecta el equipo — actualizar Equipo/Uso Y limpiar descripción
                 if i in equipos_groq:
-                    _, equipo_groq = equipos_groq[i]
-                    if equipo_groq and len(equipo_groq) < len(corregida):
-                        equipo = equipo_groq
-                        # Eliminar el equipo de la descripción corregida
-                        # Buscar el texto del equipo (case-insensitive) y cortar desde ahí
-                        idx_eq = corregida.lower().rfind(equipo_groq.lower()[:25])
-                        if idx_eq > 10:  # Solo cortar si queda algo antes
-                            corregida = corregida[:idx_eq].strip().rstrip(',.').strip()
+                    _, equipo_groq_val = equipos_groq[i]
+                    if equipo_groq_val and len(equipo_groq_val) < len(corregida):
+                        equipo = equipo_groq_val
+                        corregida = limpiar_equipo_de_desc(corregida, equipo_groq_val)
                 
                 # Siempre limpiar URL de la descripción corregida final
                 corregida = limpiar_url(corregida)
