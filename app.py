@@ -162,6 +162,13 @@ projects = [
         "desc": "Consultá, analizá y cruzá cualquier normativa argentina — BCRA, AFIP, DGI, Boletín Oficial y más. Buscá por número o subí el documento.",
         "page": "pages/13_Analizador_Normativo.py"
     },
+    {
+        "icon": "🌍",
+        "name": "Acuerdo UE-Mercosur — Normativa y Consultas",
+        "tag": "Normativa",
+        "desc": "Consultá el texto del acuerdo, impactos arancelarios y análisis sobre el Acuerdo de Asociación entre la Unión Europea y el Mercosur. Fuentes verificadas.",
+        "page": "pages/14_Acuerdo_EU_Mercosur.py"
+    },
 ]
 
 coming_soon = [
