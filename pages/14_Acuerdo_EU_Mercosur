@@ -1,0 +1,69 @@
+import streamlit as st
+
+st.markdown("""
+<style>
+[data-testid="stToolbar"] { visibility: hidden !important; }
+[data-testid="stDecoration"] { display: none !important; }
+a[href*="github.com"] { display: none !important; }
+</style>
+""", unsafe_allow_html=True)
+
+NOTEBOOK_URL = "https://notebooklm.google.com/notebook/47664f3c-cec9-4754-b863-779dea970211/preview"
+
+st.title("🌍 Acuerdo UE-Mercosur — Normativa y Consultas")
+st.markdown("---")
+st.markdown(
+    """
+    Consultá el texto del acuerdo, impactos arancelarios y análisis sobre el 
+    **Acuerdo de Asociación entre la Unión Europea y el Mercosur** 
+    en base a fuentes oficiales verificadas.
+    """
+)
+
+st.markdown("### ¿Qué podés consultar?")
+col1, col2 = st.columns(2)
+with col1:
+    st.markdown(
+        """
+        - 📄 Texto y estructura del acuerdo  
+        - 📋 Cronograma de desgravación arancelaria  
+        - 🏗️ Reglas de origen aplicables  
+        - 💰 Impacto en derechos de importación  
+        """
+    )
+with col2:
+    st.markdown(
+        """
+        - 🌍 Sectores y productos alcanzados  
+        - ⚖️ Cláusulas de salvaguarda  
+        - 📦 Comercio exterior en el marco del acuerdo  
+        - 🔍 Análisis comparativos y proyecciones  
+        """
+    )
+
+st.markdown("---")
+st.info(
+    "💡 **Tip:** Podés hacer preguntas concretas como: "
+    "*¿Qué productos tienen desgravación inmediata?*, "
+    "*¿Cuáles son las reglas de origen para autopartes?*, "
+    "*¿Cómo afecta el acuerdo a las importaciones de maquinaria?*"
+)
+
+st.markdown("### Acceder al asistente")
+st.markdown(
+    """
+    El asistente se abre en una nueva pestaña. 
+    Necesitás una cuenta de **Google (Gmail)** para acceder.
+    Solo podés hacer consultas — las fuentes no se pueden modificar.
+    """
+)
+
+st.link_button(
+    label="🚀 Abrir asistente UE-Mercosur",
+    url=NOTEBOOK_URL,
+    use_container_width=True,
+    type="primary",
+)
+
+st.markdown("---")
+st.caption("Fuentes: Texto consolidado del Acuerdo UE-Mercosur · Boletín Oficial · Análisis técnicos verificados · 25 fuentes oficiales")
