@@ -8,7 +8,7 @@ a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
-NOTEBOOK_URL = "https://notebooklm.google.com/notebook/39713be2-d428-4a3a-bb3c-744323fb690e"
+NOTEBOOK_URL = "https://notebooklm.google.com/notebook/39713be2-d428-4a3a-bb3c-744323fb690e/preview"
 
 st.title("🏛️ RIGI — Normativa y Consultas")
 st.markdown("---")
@@ -50,6 +50,7 @@ st.markdown(
     """
     El asistente se abre en una nueva pestaña. 
     Necesitás una cuenta de **Google (Gmail)** para acceder.
+    Solo podés hacer consultas — las fuentes no se pueden modificar.
     """
 )
 st.link_button(
