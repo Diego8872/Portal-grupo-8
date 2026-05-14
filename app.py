@@ -185,14 +185,13 @@ for row_start in range(0, len(all_items), 3):
     for i, (tipo, item) in enumerate(row_items):
         with cols[i]:
             if tipo == "active":
-                review_badge = '<div class="card-review-badge">🔧 En revisión</div>' if item.get("review") else ""
+                review_badge = '<span class="card-review-badge">🔧 En revisión</span>' if item.get("review") else ""
                 st.markdown(f"""
                 <div class="card-wrapper">
-                    <div class="card-tag">{item['tag']}</div>
+                    <div style="margin-bottom:14px;"><span class="card-tag" style="margin-bottom:0;">{item['tag']}</span> {review_badge}</div>
                     <span class="card-icon">{item['icon']}</span>
                     <div class="card-name">{item['name']}</div>
                     <div class="card-desc">{item['desc']}</div>
-                    {review_badge}
                 </div>
                 """, unsafe_allow_html=True)
                 if st.button("Abrir herramienta", key=f"btn_{row_start+i}", use_container_width=True):
