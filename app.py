@@ -27,7 +27,8 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 .card-tag { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #5bbfcf; border: 1px solid rgba(91,191,207,0.4); padding: 3px 10px; border-radius: 20px; margin-bottom: 14px; }
 .card-icon { font-size: 1.8rem; margin-bottom: 10px; display: block; }
 .card-name { font-family: 'Outfit', sans-serif; font-size: 1.05rem; font-weight: 600; color: #ffffff; margin-bottom: 10px; line-height: 1.3; }
-.card-desc { font-size: 0.80rem; color: rgba(255,255,255,0.65); font-weight: 300; line-height: 1.65; margin-bottom: 18px; }
+.card-desc { font-size: 0.80rem; color: rgba(255,255,255,0.65); font-weight: 300; line-height: 1.65; margin-bottom: 12px; }
+.card-review-badge { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: #f0a500; border: 1px solid rgba(240,165,0,0.4); background: rgba(240,165,0,0.08); padding: 4px 10px; border-radius: 20px; margin-bottom: 10px; }
 
 .card-soon { background: rgba(255,255,255,0.03); border: 1px solid rgba(91,191,207,0.12); border-radius: 20px; padding: 28px 26px; margin-bottom: 4px; opacity: 0.6; }
 .card-soon-tag { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255,255,255,0.3); border: 1px solid rgba(255,255,255,0.12); padding: 3px 10px; border-radius: 20px; margin-bottom: 14px; }
@@ -160,11 +161,12 @@ projects = [
         "name": "Analizador de Normativa",
         "tag": "Normativa",
         "desc": "Consultá, analizá y cruzá cualquier normativa argentina — BCRA, AFIP, DGI, Boletín Oficial y más. Buscá por número o subí el documento.",
-        "page": "pages/13_Analizador_Normativo.py"
+        "page": "pages/13_Analizador_Normativo.py",
+        "review": True
     },
     {
         "icon": "🌍",
-        "name": "Acuerdo UE-Mercosur — Normativa y Consultas",
+        "name": "UE-Mercosur — Normativa y Consultas",
         "tag": "Normativa",
         "desc": "Consultá el texto del acuerdo, impactos arancelarios y análisis sobre el Acuerdo de Asociación entre la Unión Europea y el Mercosur. Fuentes verificadas.",
         "page": "pages/14_Acuerdo_EU_Mercosur.py"
@@ -183,12 +185,14 @@ for row_start in range(0, len(all_items), 3):
     for i, (tipo, item) in enumerate(row_items):
         with cols[i]:
             if tipo == "active":
+                review_badge = '<div class="card-review-badge">🔧 En revisión</div>' if item.get("review") else ""
                 st.markdown(f"""
                 <div class="card-wrapper">
                     <div class="card-tag">{item['tag']}</div>
                     <span class="card-icon">{item['icon']}</span>
                     <div class="card-name">{item['name']}</div>
                     <div class="card-desc">{item['desc']}</div>
+                    {review_badge}
                 </div>
                 """, unsafe_allow_html=True)
                 if st.button("Abrir herramienta", key=f"btn_{row_start+i}", use_container_width=True):
