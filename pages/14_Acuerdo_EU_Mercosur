@@ -10,7 +10,7 @@ a[href*="github.com"] { display: none !important; }
 
 NOTEBOOK_URL = "https://notebooklm.google.com/notebook/47664f3c-cec9-4754-b863-779dea970211/preview"
 
-st.title("🌍 UE-Mercosur — Normativa y Consultas")
+st.title("🌍 UE-Mercosur — Normativa")
 st.markdown("---")
 st.markdown(
     """
