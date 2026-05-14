@@ -8,7 +8,7 @@ a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
-NOTEBOOK_URL = "https://notebooklm.google.com/notebook/8ded9948-1029-4468-a7b8-976e338ce13d"
+NOTEBOOK_URL = "https://notebooklm.google.com/notebook/8ded9948-1029-4468-a7b8-976e338ce13d/preview"
 
 st.title("🍽️ INAL — Normativa y Consultas")
 st.markdown("---")
@@ -50,6 +50,7 @@ st.markdown(
     """
     El asistente se abre en una nueva pestaña. 
     Necesitás una cuenta de **Google (Gmail)** para acceder.
+    Solo podés hacer consultas — las fuentes no se pueden modificar.
     """
 )
 st.link_button(
