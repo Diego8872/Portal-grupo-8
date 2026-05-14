@@ -22,13 +22,13 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 .divider { width: 40px; height: 2px; background: linear-gradient(90deg, #5bbfcf, transparent); margin: 20px auto 0 auto; }
 .section-label { font-family: 'Outfit', sans-serif; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.25em; text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 20px; border-left: 2px solid #5bbfcf; padding-left: 10px; }
 
-.card-wrapper { background: rgba(255,255,255,0.07); border: 1px solid rgba(91,191,207,0.25); border-radius: 20px; padding: 28px 26px; margin-bottom: 4px; position: relative; transition: all 0.3s ease; box-shadow: 0 4px 24px rgba(0,0,0,0.2); min-height: 220px; }
+.card-wrapper { background: rgba(255,255,255,0.07); border: 1px solid rgba(91,191,207,0.25); border-radius: 20px; padding: 28px 26px; margin-bottom: 4px; position: relative; transition: all 0.3s ease; box-shadow: 0 4px 24px rgba(0,0,0,0.2); }
 .card-wrapper:hover { background: rgba(91,191,207,0.12); border-color: rgba(91,191,207,0.55); transform: translateY(-2px); box-shadow: 0 12px 36px rgba(0,0,0,0.3); }
-.card-tag { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #5bbfcf; border: 1px solid rgba(91,191,207,0.4); padding: 3px 10px; border-radius: 20px; margin-bottom: 14px; }
+.card-tag { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #5bbfcf; border: 1px solid rgba(91,191,207,0.4); padding: 3px 10px; border-radius: 20px; }
 .card-icon { font-size: 1.8rem; margin-bottom: 10px; display: block; }
 .card-name { font-family: 'Outfit', sans-serif; font-size: 1.05rem; font-weight: 600; color: #ffffff; margin-bottom: 10px; line-height: 1.3; }
-.card-desc { font-size: 0.80rem; color: rgba(255,255,255,0.65); font-weight: 300; line-height: 1.65; margin-bottom: 12px; }
-.card-review-badge { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: #f0a500; border: 1px solid rgba(240,165,0,0.4); background: rgba(240,165,0,0.08); padding: 4px 10px; border-radius: 20px; margin-bottom: 10px; }
+.card-desc { font-size: 0.80rem; color: rgba(255,255,255,0.65); font-weight: 300; line-height: 1.65; margin-bottom: 0; }
+.card-review-badge { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: #f0a500; border: 1px solid rgba(240,165,0,0.4); background: rgba(240,165,0,0.08); padding: 3px 10px; border-radius: 20px; }
 
 .card-soon { background: rgba(255,255,255,0.03); border: 1px solid rgba(91,191,207,0.12); border-radius: 20px; padding: 28px 26px; margin-bottom: 4px; opacity: 0.6; }
 .card-soon-tag { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255,255,255,0.3); border: 1px solid rgba(255,255,255,0.12); padding: 3px 10px; border-radius: 20px; margin-bottom: 14px; }
@@ -160,7 +160,7 @@ projects = [
         "icon": "⚖️",
         "name": "Analizador de Normativa",
         "tag": "Normativa",
-        "desc": "Consultá, analizá y cruzá cualquier normativa argentina — BCRA, AFIP, DGI, Boletín Oficial y más. Buscá por número o subí el documento.",
+        "desc": "Analizá normativa argentina — BCRA, AFIP, Boletín Oficial y más. Buscá por número o subí el documento.",
         "page": "pages/13_Analizador_Normativo.py",
         "review": True
     },
@@ -188,7 +188,7 @@ for row_start in range(0, len(all_items), 3):
                 review_badge = '<span class="card-review-badge">🔧 En revisión</span>' if item.get("review") else ""
                 st.markdown(f"""
                 <div class="card-wrapper">
-                    <div style="margin-bottom:14px;"><span class="card-tag" style="margin-bottom:0;">{item['tag']}</span> {review_badge}</div>
+                    <div style="margin-bottom:14px; line-height:2;"><span class="card-tag">{item['tag']}</span> {review_badge}</div>
                     <span class="card-icon">{item['icon']}</span>
                     <div class="card-name">{item['name']}</div>
                     <div class="card-desc">{item['desc']}</div>
