@@ -145,8 +145,13 @@ def cargar_pl(file_bytes):
             tiene_numeros = any(str(v).strip().isdigit() or (len(str(v).strip()) >= 5 and str(v).strip().replace('.','').isdigit()) for v in primera.values if pd.notna(v))
             if not tiene_numeros:
                 data_start += 1
+        # Leer headers para detectar columnas por nombre
+        header_vals = [str(v).replace('\n', ' ').strip().upper() if pd.notna(v) else ''
+                       for v in df.iloc[header_row].values]
+
         data = df.iloc[data_start:].copy().reset_index(drop=True)
         data.columns = range(len(data.columns))
+
         col_mat = 1
         for col_idx in range(min(4, len(data.columns))):
             muestra = data[col_idx].dropna().astype(str)
@@ -158,6 +163,40 @@ def cargar_pl(file_bytes):
             cols = list(data.columns)
             cols[1], cols[col_mat] = cols[col_mat], cols[1]
             data = data[cols]
+
+        col_qty_idx, col_desc_idx, col_lote_idx, col_fecha_idx = 2, 3, 5, 6
+        lote_encontrado = False
+        for idx, h in enumerate(header_vals):
+            if any(k in h for k in ['QUANTITY', 'CANTIDAD', 'QTY']) and idx not in [0,1]:
+                col_qty_idx = idx
+            if any(k in h for k in ['DESCRIPTION', 'DESCRIP']) and idx not in [0,1]:
+                col_desc_idx = idx
+            if any(k in h for k in ['LOT PRODUCT', 'LOT\nPRODUCT', 'LOT']) and not lote_encontrado:
+                col_lote_idx = idx
+                lote_encontrado = True
+            if any(k in h for k in ['EXPIRE', 'VENC', 'EXPIR']):
+                col_fecha_idx = idx
+
+        if col_fecha_idx in data.columns:
+            def normalizar_fecha(v):
+                if pd.isna(v) or str(v).strip() in ('', 'nan'): return ''
+                if isinstance(v, datetime): return f"{v.month:02d}/{v.year}"
+                s = str(v).strip()
+                m = re.match(r'(\d{4})-(\d{2})-(\d{2})', s)
+                if m: return f"{m.group(2)}/{m.group(1)}"
+                return s
+            data[col_fecha_idx] = data[col_fecha_idx].apply(normalizar_fecha)
+
+        col_map_reorder = {2: col_qty_idx, 3: col_desc_idx, 5: col_lote_idx, 6: col_fecha_idx}
+        if any(v != k for k, v in col_map_reorder.items()) and len(data) > 0:
+            data = data.rename(columns={
+                col_qty_idx: '_qty', col_desc_idx: '_desc',
+                col_lote_idx: '_lote', col_fecha_idx: '_fecha'
+            })
+            for pos, key in [(2,'_qty'),(3,'_desc'),(5,'_lote'),(6,'_fecha')]:
+                if pos not in data.columns: data[pos] = ''
+                if key in data.columns: data[pos] = data[key]
+
         rows.append(data)
     pl = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
     return pl, invoice
