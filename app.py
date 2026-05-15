@@ -24,11 +24,11 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 
 .card-wrapper { background: rgba(255,255,255,0.07); border: 1px solid rgba(91,191,207,0.25); border-radius: 20px; padding: 28px 26px; margin-bottom: 4px; position: relative; transition: all 0.3s ease; box-shadow: 0 4px 24px rgba(0,0,0,0.2); }
 .card-wrapper:hover { background: rgba(91,191,207,0.12); border-color: rgba(91,191,207,0.55); transform: translateY(-2px); box-shadow: 0 12px 36px rgba(0,0,0,0.3); }
-.card-tag { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #5bbfcf; border: 1px solid rgba(91,191,207,0.4); padding: 3px 10px; border-radius: 20px; }
+.card-tag { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #5bbfcf; border: 1px solid rgba(91,191,207,0.4); padding: 3px 10px; border-radius: 20px; margin-bottom: 14px; }
 .card-icon { font-size: 1.8rem; margin-bottom: 10px; display: block; }
 .card-name { font-family: 'Outfit', sans-serif; font-size: 1.05rem; font-weight: 600; color: #ffffff; margin-bottom: 10px; line-height: 1.3; }
-.card-desc { font-size: 0.80rem; color: rgba(255,255,255,0.65); font-weight: 300; line-height: 1.65; margin-bottom: 0; }
-.card-review-badge { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: #f0a500; border: 1px solid rgba(240,165,0,0.4); background: rgba(240,165,0,0.08); padding: 3px 10px; border-radius: 20px; }
+.card-desc { font-size: 0.80rem; color: rgba(255,255,255,0.65); font-weight: 300; line-height: 1.65; margin-bottom: 18px; }
+.card-review-badge { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: #f0a500; border: 1px solid rgba(240,165,0,0.4); background: rgba(240,165,0,0.08); padding: 3px 10px; border-radius: 20px; margin-left: 6px; vertical-align: middle; }
 
 .card-soon { background: rgba(255,255,255,0.03); border: 1px solid rgba(91,191,207,0.12); border-radius: 20px; padding: 28px 26px; margin-bottom: 4px; opacity: 0.6; }
 .card-soon-tag { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255,255,255,0.3); border: 1px solid rgba(255,255,255,0.12); padding: 3px 10px; border-radius: 20px; margin-bottom: 14px; }
@@ -77,91 +77,91 @@ projects = [
         "name": "Corrector Co Natura",
         "tag": "Auditoría",
         "desc": "Validación automática del Certificado de Origen para la cuenta Natura. Detecta inconsistencias y genera reporte de correctores.",
-        "page": "1_corrector_co_natura.py"
+        "page": "pages/1_corrector_co_natura.py"
     },
     {
         "icon": "📋",
         "name": "Corrector Descripciones Finning",
         "tag": "Auditoría",
         "desc": "Control y corrección de descripciones de mercadería para la cuenta Finning. Verifica y normaliza la uniformidad de datos.",
-        "page": "2_corrector_descripciones.py"
+        "page": "pages/2_corrector_descripciones.py"
     },
     {
         "icon": "📊",
         "name": "KPI Finning",
         "tag": "Reportes",
         "desc": "Dashboard de indicadores clave de desempeño operativo para la cuenta Finning. Visualización de métricas y seguimiento de gestión.",
-        "page": "3_kpi_finning.py"
+        "page": "pages/3_kpi_finning.py"
     },
     {
         "icon": "📑",
         "name": "Planillas KPI CM",
         "tag": "Reportes",
         "desc": "Generación automática de reportes mensuales de Certificados de Mercadería. Produce CM Presentados y CM Aprobados desde la planilla madre.",
-        "page": "4_planillas_kpi_cm.py"
+        "page": "pages/4_planillas_kpi_cm.py"
     },
     {
         "icon": "🗂️",
         "name": "Template CM",
         "tag": "Clasificación",
         "desc": "Generación automática de planillas de clasificación de mercadería para Finning. Procesa FACAERO y DI para producir un template por factura.",
-        "page": "5_template_cm.py"
+        "page": "pages/5_template_cm.py"
     },
     {
         "icon": "📋",
         "name": "Generador ANMAT Natura",
         "tag": "Importaciones",
         "desc": "Generación automática del Anexo de Productos ANMAT para operaciones de importación Natura y Avon. Cruza PL, registros ANMAT, NCM y fabricantes.",
-        "page": "6_anexo_anmat_natura.py"
+        "page": "pages/6_anexo_anmat_natura.py"
     },
     {
         "icon": "📄",
         "name": "DJIM Finning POWER",
         "tag": "Importaciones",
         "desc": "Generación automática de DJIM (Excel) y DJIM Electrónica (TXT) para importaciones de motores y bloques Finning Power.",
-        "page": "7_DJIM_Finning_POWER.py"
+        "page": "pages/7_DJIM_Finning_POWER.py"
     },
     {
         "icon": "🏛️",
         "name": "RIGI — Normativa y Consultas",
         "tag": "Normativa",
         "desc": "Consultá normativa, decretos y análisis sobre el Régimen de Incentivo para Grandes Inversiones (RIGI) en base a fuentes oficiales verificadas.",
-        "page": "8_RIGI_Normativa_Consultas.py"
+        "page": "pages/8_RIGI_Normativa_Consultas.py"
     },
     {
         "icon": "🍽️",
         "name": "INAL — Normativa y Consultas",
         "tag": "Normativa",
         "desc": "Consultá normativa y procedimientos del Instituto Nacional de Alimentos (INAL) para importación de productos alimenticios. Fuentes oficiales verificadas.",
-        "page": "9_INAL_Normativa_Consultas.py"
+        "page": "pages/9_INAL_Normativa_Consultas.py"
     },
     {
         "icon": "🧴",
         "name": "ANMAT — Cosméticos y Perfumes",
         "tag": "Normativa",
         "desc": "Consultá normativa y procedimientos de ANMAT para importación de cosméticos y perfumes. Fuentes oficiales verificadas.",
-        "page": "10_ANMAT_Cosmeticos_Perfumes.py"
+        "page": "pages/10_ANMAT_Cosmeticos_Perfumes.py"
     },
     {
         "icon": "⛏️",
         "name": "Ley Minera — Normativa y Consultas",
         "tag": "Normativa",
         "desc": "Consultá normativa sobre el Régimen de Inversiones Mineras (Ley 24.196), prestadores de servicios, comercio exterior minero y RIGI (Ley 27.742).",
-        "page": "11_Ley_Minera_Normativa_Consultas.py"
+        "page": "pages/11_Ley_Minera_Normativa_Consultas.py"
     },
     {
         "icon": "📦",
         "name": "Construcción de Lote",
         "tag": "Importaciones",
         "desc": "Generación automática de lotes CME y SIDOM desde facturas PDF. Múltiples proveedores, con lógica de marca, NCM y origen según cliente.",
-        "page": "12_Construccion_Lote.py"
+        "page": "pages/12_Construccion_Lote.py"
     },
     {
         "icon": "⚖️",
         "name": "Analizador de Normativa",
         "tag": "Normativa",
-        "desc": "Analizá normativa argentina — BCRA, AFIP, Boletín Oficial y más. Buscá por número o subí el documento.",
-        "page": "13_Analizador_Normativo.py",
+        "desc": "Consultá, analizá y cruzá cualquier normativa argentina — BCRA, AFIP, DGI, Boletín Oficial y más. Buscá por número o subí el documento.",
+        "page": "pages/13_Analizador_Normativo.py",
         "review": True
     },
     {
@@ -169,7 +169,7 @@ projects = [
         "name": "UE-Mercosur — Normativa",
         "tag": "Normativa",
         "desc": "Consultá normativa, impactos arancelarios y análisis del Acuerdo UE-Mercosur. Fuentes verificadas.",
-        "page": "14_Acuerdo_EU_Mercosur.py"
+        "page": "pages/14_Acuerdo_EU_Mercosur.py"
     },
 ]
 
@@ -188,7 +188,7 @@ for row_start in range(0, len(all_items), 3):
                 review_badge = '<span class="card-review-badge">🔧 En revisión</span>' if item.get("review") else ""
                 st.markdown(f"""
                 <div class="card-wrapper">
-                    <div style="margin-bottom:14px; line-height:2;"><span class="card-tag">{item['tag']}</span> {review_badge}</div>
+                    <div class="card-tag">{item['tag']}</div>{review_badge}
                     <span class="card-icon">{item['icon']}</span>
                     <div class="card-name">{item['name']}</div>
                     <div class="card-desc">{item['desc']}</div>
