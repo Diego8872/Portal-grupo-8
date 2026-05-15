@@ -22,7 +22,7 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 .divider { width: 40px; height: 2px; background: linear-gradient(90deg, #5bbfcf, transparent); margin: 20px auto 0 auto; }
 .section-label { font-family: 'Outfit', sans-serif; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.25em; text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 20px; border-left: 2px solid #5bbfcf; padding-left: 10px; }
 
-.card-wrapper { background: rgba(255,255,255,0.07); border: 1px solid rgba(91,191,207,0.25); border-radius: 20px; padding: 28px 26px; margin-bottom: 4px; position: relative; transition: all 0.3s ease; box-shadow: 0 4px 24px rgba(0,0,0,0.2); min-height: 240px; }
+.card-wrapper { background: rgba(255,255,255,0.07); border: 1px solid rgba(91,191,207,0.25); border-radius: 20px; padding: 28px 26px; margin-bottom: 4px; position: relative; transition: all 0.3s ease; box-shadow: 0 4px 24px rgba(0,0,0,0.2); height: 100%; box-sizing: border-box; }
 .card-wrapper:hover { background: rgba(91,191,207,0.12); border-color: rgba(91,191,207,0.55); transform: translateY(-2px); box-shadow: 0 12px 36px rgba(0,0,0,0.3); }
 .card-tag { display: inline-block; font-family: 'Outfit', sans-serif; font-size: 0.58rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #5bbfcf; border: 1px solid rgba(91,191,207,0.4); padding: 3px 10px; border-radius: 20px; margin-bottom: 14px; }
 .card-icon { font-size: 1.8rem; margin-bottom: 10px; display: block; }
@@ -57,6 +57,10 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 [data-testid="stToolbar"] { visibility: hidden !important; }
 [data-testid="stDecoration"] { display: none !important; }
 a[href*="github.com"] { display: none !important; }
+
+div[data-testid="column"] { display: flex; flex-direction: column; }
+div[data-testid="column"] > div { flex: 1; display: flex; flex-direction: column; }
+div[data-testid="column"] > div > div { flex: 1; display: flex; flex-direction: column; }
 </style>
 """, unsafe_allow_html=True)
 
