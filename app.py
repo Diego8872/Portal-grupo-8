@@ -77,91 +77,91 @@ projects = [
         "name": "Corrector Co Natura",
         "tag": "Auditoría",
         "desc": "Validación automática del Certificado de Origen para la cuenta Natura. Detecta inconsistencias y genera reporte de correctores.",
-        "page": "pages/1_corrector_co_natura.py"
+        "page": "1_corrector_co_natura.py"
     },
     {
         "icon": "📋",
         "name": "Corrector Descripciones Finning",
         "tag": "Auditoría",
         "desc": "Control y corrección de descripciones de mercadería para la cuenta Finning. Verifica y normaliza la uniformidad de datos.",
-        "page": "pages/2_corrector_descripciones.py"
+        "page": "2_corrector_descripciones.py"
     },
     {
         "icon": "📊",
         "name": "KPI Finning",
         "tag": "Reportes",
         "desc": "Dashboard de indicadores clave de desempeño operativo para la cuenta Finning. Visualización de métricas y seguimiento de gestión.",
-        "page": "pages/3_kpi_finning.py"
+        "page": "3_kpi_finning.py"
     },
     {
         "icon": "📑",
         "name": "Planillas KPI CM",
         "tag": "Reportes",
         "desc": "Generación automática de reportes mensuales de Certificados de Mercadería. Produce CM Presentados y CM Aprobados desde la planilla madre.",
-        "page": "pages/4_planillas_kpi_cm.py"
+        "page": "4_planillas_kpi_cm.py"
     },
     {
         "icon": "🗂️",
         "name": "Template CM",
         "tag": "Clasificación",
         "desc": "Generación automática de planillas de clasificación de mercadería para Finning. Procesa FACAERO y DI para producir un template por factura.",
-        "page": "pages/5_template_cm.py"
+        "page": "5_template_cm.py"
     },
     {
         "icon": "📋",
         "name": "Generador ANMAT Natura",
         "tag": "Importaciones",
         "desc": "Generación automática del Anexo de Productos ANMAT para operaciones de importación Natura y Avon. Cruza PL, registros ANMAT, NCM y fabricantes.",
-        "page": "pages/6_anexo_anmat_natura.py"
+        "page": "6_anexo_anmat_natura.py"
     },
     {
         "icon": "📄",
         "name": "DJIM Finning POWER",
         "tag": "Importaciones",
         "desc": "Generación automática de DJIM (Excel) y DJIM Electrónica (TXT) para importaciones de motores y bloques Finning Power.",
-        "page": "pages/7_DJIM_Finning_POWER.py"
+        "page": "7_DJIM_Finning_POWER.py"
     },
     {
         "icon": "🏛️",
         "name": "RIGI — Normativa y Consultas",
         "tag": "Normativa",
         "desc": "Consultá normativa, decretos y análisis sobre el Régimen de Incentivo para Grandes Inversiones (RIGI) en base a fuentes oficiales verificadas.",
-        "page": "pages/8_RIGI_Normativa_Consultas.py"
+        "page": "8_RIGI_Normativa_Consultas.py"
     },
     {
         "icon": "🍽️",
         "name": "INAL — Normativa y Consultas",
         "tag": "Normativa",
         "desc": "Consultá normativa y procedimientos del Instituto Nacional de Alimentos (INAL) para importación de productos alimenticios. Fuentes oficiales verificadas.",
-        "page": "pages/9_INAL_Normativa_Consultas.py"
+        "page": "9_INAL_Normativa_Consultas.py"
     },
     {
         "icon": "🧴",
         "name": "ANMAT — Cosméticos y Perfumes",
         "tag": "Normativa",
         "desc": "Consultá normativa y procedimientos de ANMAT para importación de cosméticos y perfumes. Fuentes oficiales verificadas.",
-        "page": "pages/10_ANMAT_Cosmeticos_Perfumes.py"
+        "page": "10_ANMAT_Cosmeticos_Perfumes.py"
     },
     {
         "icon": "⛏️",
         "name": "Ley Minera — Normativa y Consultas",
         "tag": "Normativa",
         "desc": "Consultá normativa sobre el Régimen de Inversiones Mineras (Ley 24.196), prestadores de servicios, comercio exterior minero y RIGI (Ley 27.742).",
-        "page": "pages/11_Ley_Minera_Normativa_Consultas.py"
+        "page": "11_Ley_Minera_Normativa_Consultas.py"
     },
     {
         "icon": "📦",
         "name": "Construcción de Lote",
         "tag": "Importaciones",
         "desc": "Generación automática de lotes CME y SIDOM desde facturas PDF. Múltiples proveedores, con lógica de marca, NCM y origen según cliente.",
-        "page": "pages/12_Construccion_Lote.py"
+        "page": "12_Construccion_Lote.py"
     },
     {
         "icon": "⚖️",
         "name": "Analizador de Normativa",
         "tag": "Normativa",
         "desc": "Analizá normativa argentina — BCRA, AFIP, Boletín Oficial y más. Buscá por número o subí el documento.",
-        "page": "pages/13_Analizador_Normativo.py",
+        "page": "13_Analizador_Normativo.py",
         "review": True
     },
     {
@@ -169,7 +169,7 @@ projects = [
         "name": "UE-Mercosur — Normativa",
         "tag": "Normativa",
         "desc": "Consultá normativa, impactos arancelarios y análisis del Acuerdo UE-Mercosur. Fuentes verificadas.",
-        "page": "pages/14_Acuerdo_EU_Mercosur.py"
+        "page": "14_Acuerdo_EU_Mercosur.py"
     },
 ]
 
