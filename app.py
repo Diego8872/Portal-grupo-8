@@ -172,7 +172,7 @@ projects = [
         "icon": "🌍",
         "name": "UE-Mercosur — Normativa",
         "tag": "Normativa",
-        "desc": "Consultá normativa, impactos arancelarios y análisis del Acuerdo UE-Mercosur. Fuentes verificadas.",
+        "desc": "Consultá normativa, impactos arancelarios y análisis del Acuerdo UE-Mercosur. Incluye cronograma de desgravación arancelaria. Fuentes verificadas.",
         "page": "pages/14_Acuerdo_EU_Mercosur.py"
     },
 ]
