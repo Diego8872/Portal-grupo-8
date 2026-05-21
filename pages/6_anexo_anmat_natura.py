@@ -116,7 +116,11 @@ def cargar_pl(file_bytes):
         header_row = None
         for i, row in df.iterrows():
             row_str = ' '.join(str(v).replace('\n', ' ').upper() for v in row.values if pd.notna(v))
-            if 'MATERIAL CODE' in row_str or 'MATERIAL\nCODE' in str(row.values):
+            vals_upper = [str(v).replace('\n', ' ').strip().upper() for v in row.values if pd.notna(v)]
+            if ('MATERIAL CODE' in row_str or 'MATERIAL\nCODE' in str(row.values)
+                    or ('CODE' in vals_upper and any(k in row_str for k in ['PRODUCT', 'LOT', 'DESCRIPTION', 'PACKING']))
+                    or ('CODIGO' in row_str and any(k in row_str for k in ['DESCRIPCION', 'LOTE', 'CANTIDAD']))
+                    or ('MATERIAL' in vals_upper and any(k in row_str for k in ['DESCRIPTION', 'LOT', 'QUANTITY']))):
                 header_row = i
                 break
         if header_row is None:
@@ -152,36 +156,44 @@ def cargar_pl(file_bytes):
         data = df.iloc[data_start:].copy().reset_index(drop=True)
         data.columns = range(len(data.columns))
 
-        col_mat = 1
-        for col_idx in range(min(4, len(data.columns))):
-            muestra = data[col_idx].dropna().astype(str)
-            if muestra.str.match(r'^\d{5,}').sum() > 0:
-                col_mat = col_idx
+        # Detectar columna de material: primero por header, luego por contenido
+        col_mat = None
+        for idx, h in enumerate(header_vals):
+            if h in ('CODE', 'CÓDIGO', 'CODIGO', 'MATERIAL CODE'):
+                col_mat = idx
                 break
+            if 'MATERIAL CODE' in h or h == 'MATERIAL\nCODE':
+                col_mat = idx
+                break
+        if col_mat is None:
+            for col_idx in range(min(5, len(data.columns))):
+                muestra = data[col_idx].dropna().astype(str)
+                if muestra.str.match(r'^\d{5,}').sum() > 0:
+                    col_mat = col_idx
+                    break
+            if col_mat is None:
+                col_mat = 1
         data = data[data[col_mat].astype(str).str.match(r'^\d{5,}$')]
-        if col_mat != 1 and len(data) > 0:
-            cols = list(data.columns)
-            cols[1], cols[col_mat] = cols[col_mat], cols[1]
-            data = data[cols]
 
         col_qty_idx, col_desc_idx, col_lote_idx, col_fecha_idx = 2, 3, 5, 6
         lote_encontrado = False
         qty_encontrado = False
+
         for idx, h in enumerate(header_vals):
             if idx in [0, 1]:
                 continue
-            if not qty_encontrado and any(k in h for k in ['QUANTITY PC', 'QUANTITY', 'CANTIDAD']) and 'BOX' not in h:
+            if not qty_encontrado and any(k in h for k in ['QUANTITY PC', 'QUANTITY', 'CANTIDAD', 'PCS']) and 'BOX' not in h and 'TOTAL' not in h:
                 col_qty_idx = idx
                 qty_encontrado = True
-            if any(k in h for k in ['DESCRIPTION', 'DESCRIP']):
+            if any(k in h for k in ['DESCRIPTION', 'DESCRIP', 'PRODUCT NAME']):
                 col_desc_idx = idx
             if 'LOT PRODUCT' in h and not lote_encontrado:
                 col_lote_idx = idx
                 lote_encontrado = True
-            elif any(k in h for k in ['LOT', 'LOTE']) and 'SUPPLIER' not in h and 'BOX' not in h and not lote_encontrado:
+            elif any(k in h for k in ['LOT NUMBER', 'LOT', 'LOTE']) and 'SUPPLIER' not in h and 'BOX' not in h and not lote_encontrado:
                 col_lote_idx = idx
                 lote_encontrado = True
-            if any(k in h for k in ['EXPIRE', 'VENC', 'EXPIR']):
+            if any(k in h for k in ['EXPIRE', 'VENC', 'EXPIR', 'EXPIRATION']):
                 col_fecha_idx = idx
 
         if col_fecha_idx in data.columns:
@@ -194,15 +206,20 @@ def cargar_pl(file_bytes):
                 return s
             data[col_fecha_idx] = data[col_fecha_idx].apply(normalizar_fecha)
 
-        col_map_reorder = {2: col_qty_idx, 3: col_desc_idx, 5: col_lote_idx, 6: col_fecha_idx}
+        # Reordenar a posiciones estándar: 1=mat, 2=qty, 3=desc, 5=lote, 6=fecha
+        col_map_reorder = {1: col_mat, 2: col_qty_idx, 3: col_desc_idx, 5: col_lote_idx, 6: col_fecha_idx}
         if any(v != k for k, v in col_map_reorder.items()) and len(data) > 0:
-            data = data.rename(columns={
-                col_qty_idx: '_qty', col_desc_idx: '_desc',
-                col_lote_idx: '_lote', col_fecha_idx: '_fecha'
-            })
-            for pos, key in [(2,'_qty'),(3,'_desc'),(5,'_lote'),(6,'_fecha')]:
-                if pos not in data.columns: data[pos] = ''
-                if key in data.columns: data[pos] = data[key]
+            rename_map = {}
+            for std_pos, src_pos in col_map_reorder.items():
+                if src_pos in data.columns and src_pos != std_pos:
+                    rename_map[src_pos] = f'_col{std_pos}'
+            data = data.rename(columns=rename_map)
+            for std_pos, src_pos in col_map_reorder.items():
+                key = f'_col{std_pos}'
+                if key in data.columns:
+                    data[std_pos] = data[key]
+                elif std_pos not in data.columns:
+                    data[std_pos] = ''
 
         rows.append(data)
     pl = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
