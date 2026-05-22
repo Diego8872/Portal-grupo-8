@@ -848,18 +848,27 @@ def cargar_pl_muestras(file_bytes):
     items = []
 
     for sh in xl.sheet_names:
-        if 'packing' not in sh.lower():
+        sh_lower = sh.lower()
+        if len(xl.sheet_names) > 1 and not any(k in sh_lower for k in ['packing', 'invoice', 'modelo', 'pl', 'list']):
             continue
 
         df_raw = pd.read_excel(tmp, sheet_name=sh, header=None)
 
         if not invoice:
             for i, row in df_raw.iterrows():
-                for val in row.values:
-                    if 'Nº INVOICE:' in str(val) or 'N° INVOICE:' in str(val):
-                        idx_v = list(row.values).index(val)
-                        if idx_v + 1 < len(row.values):
-                            invoice = str(row.values[idx_v + 1]).strip()
+                vals = list(row.values)
+                for j, val in enumerate(vals):
+                    val_str = str(val).replace('\n', ' ')
+                    if 'Nº INVOICE:' in val_str or 'N° INVOICE:' in val_str:
+                        parte = val_str.split(':', 1)[1].strip()
+                        if parte and parte != 'nan':
+                            invoice = parte
+                            break
+                        for k in range(j + 1, len(vals)):
+                            v = str(vals[k]).strip()
+                            if v and v != 'nan':
+                                invoice = v
+                                break
                         break
                 if invoice:
                     break
@@ -915,7 +924,9 @@ def cargar_pl_muestras(file_bytes):
             mat = str(row.iloc[col_material]).strip() if col_material is not None else ''
             if not mat or mat == 'nan' or not re.search(r'\d', mat):
                 continue
-            if any(kw in mat.upper() for kw in ('VOLUME', 'OBSERVAC', 'TOTAL')):
+            if any(kw in mat.upper() for kw in ('VOLUME', 'OBSERVAC', 'TOTAL', 'EXEMPLO', 'INFORM', 'PALLET', 'FUMIGATE', 'BOX', 'ISPM')):
+                continue
+            if not re.search(r'\d{4,}', mat) and not re.match(r'^\d+-\d+', mat):
                 continue
 
             desc = str(row.iloc[col_desc]).strip() if col_desc is not None and pd.notna(row.iloc[col_desc]) else ''
@@ -923,7 +934,7 @@ def cargar_pl_muestras(file_bytes):
 
             expire_raw = row.iloc[col_expire] if col_expire is not None else None
             if isinstance(expire_raw, datetime):
-                expire_str = expire_raw.strftime('%d/%m/%Y')
+                expire_str = expire_raw.strftime('%m/%Y')
             elif expire_raw is not None and str(expire_raw) != 'nan':
                 expire_str = str(expire_raw).strip()
             else:
