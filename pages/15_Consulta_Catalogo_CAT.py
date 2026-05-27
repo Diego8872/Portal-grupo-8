@@ -153,7 +153,7 @@ def generar_script(tanda_codigos, idx, pausa, variacion, corte):
     resultados.map(r => [r.codigo, r.url, r.estado, r.descripcion.replace(/;/g, ',')].join(';'))
   ).join('\\n');
 
-  const blob = new Blob([csv], {{ type: 'text/csv' }});
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'cat_tanda_{idx+1}.csv';
