@@ -28,8 +28,9 @@ st.markdown("""
         padding: 0.6rem 1rem;
         border-radius: 0 8px 8px 0;
         margin-bottom: 1rem;
-        font-weight: 600;
+        font-weight: 700;
         font-size: 1rem;
+        color: #e0f7ff !important;
     }
     .instruccion {
         background: #1a2744;
@@ -207,12 +208,12 @@ else:
     if texto.strip():
         codigos_raw = [l.strip() for l in texto.splitlines() if l.strip()]
 
-# Botón procesar
-if codigos_raw:
-    if st.button("▶ Procesar códigos", type="primary", use_container_width=False):
-        st.session_state.codigos_raw = codigos_raw
-        st.session_state.procesado = True
-        st.session_state.tandas_done = set()
+# Botón procesar — siempre visible, deshabilitado si no hay códigos
+btn_procesar = st.button("▶ Procesar códigos", type="primary", disabled=(len(codigos_raw) == 0))
+if btn_procesar and codigos_raw:
+    st.session_state.codigos_raw = codigos_raw
+    st.session_state.procesado = True
+    st.session_state.tandas_done = set()
 
 # ════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN + SCRIPTS (solo si procesado)
