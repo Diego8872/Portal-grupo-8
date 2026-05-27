@@ -149,8 +149,8 @@ def generar_script(tanda_codigos, idx, pausa, variacion, corte):
     }}
   }}
 
-  const csv = ['codigo,url,estado,descripcion'].concat(
-    resultados.map(r => [r.codigo, r.url, r.estado, '"' + r.descripcion.replace(/"/g, '""') + '"'].join(','))
+  const csv = ['codigo;url;estado;descripcion'].concat(
+    resultados.map(r => [r.codigo, r.url, r.estado, r.descripcion.replace(/;/g, ',')].join(';'))
   ).join('\\n');
 
   const blob = new Blob([csv], {{ type: 'text/csv' }});
@@ -344,7 +344,7 @@ if st.session_state.procesado and st.session_state.codigos_raw:
         frames = []
         for f in csvs:
             try:
-                frames.append(pd.read_csv(f))
+                frames.append(pd.read_csv(f, sep=';'))
             except Exception as e:
                 st.warning(f"No se pudo leer {f.name}: {e}")
 
