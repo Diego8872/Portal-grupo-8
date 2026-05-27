@@ -333,6 +333,15 @@ if st.session_state.procesado and st.session_state.codigos_raw:
     st.divider()
     st.markdown('<div class="step-header">📊 Paso 3 — Consolidar resultados</div>', unsafe_allow_html=True)
 
+    st.markdown('''
+    <div class="instruccion">
+    1. Descargá los CSV que generó el script en cada tanda<br>
+    2. Subílos acá todos juntos (podés seleccionar varios a la vez)<br>
+    3. La app consolida el resultado y lo cruza con tu listado original<br>
+    4. Si quedaron códigos <strong>sin consultar o bloqueados (403)</strong>, aparece automáticamente un <strong>script de recuperación</strong> — lo corrés en CAT y volvés a subir el CSV resultante acá
+    </div>
+    ''', unsafe_allow_html=True)
+
     csvs = st.file_uploader(
         "Subí los CSV descargados por el navegador (podés seleccionar varios a la vez)",
         type=["csv"],
@@ -407,3 +416,60 @@ if st.session_state.procesado and st.session_state.codigos_raw:
                     file_name="cat_resultado_final.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+
+            # ── Recuperar faltantes
+            faltantes = df_final[
+                df_final['Estado'].isin(['no consultado', '403'])
+            ]['Código normalizado'].dropna().unique().tolist()
+
+            if faltantes:
+                st.divider()
+                st.markdown('<div class="step-header">🔄 Recuperar códigos faltantes</div>', unsafe_allow_html=True)
+                st.markdown(f'''
+                <div class="instruccion">
+                Hay <strong>{len(faltantes)} códigos</strong> sin consultar o bloqueados (403).<br>
+                Generá el script de recuperación, pegálo en la consola de CAT y después subi el CSV resultante nuevamente al Paso 3.
+                </div>
+                ''', unsafe_allow_html=True)
+
+                c1r, c2r, c3r, c4r = st.columns(4)
+                tam_rec   = c1r.number_input("Códigos por tanda", min_value=10, max_value=200, value=min(80, len(faltantes)), step=10, key="rec_tam")
+                pausa_rec = c2r.number_input("Pausa (seg)", min_value=2.0, max_value=30.0, value=6.0, step=0.5, key="rec_pausa")
+                var_rec   = c3r.number_input("Variación (±seg)", min_value=0.0, max_value=10.0, value=2.0, step=0.5, key="rec_var")
+                corte_rec = c4r.number_input("Corte por 403", min_value=1, max_value=10, value=3, key="rec_corte")
+
+                tandas_rec = [faltantes[i:i+int(tam_rec)] for i in range(0, len(faltantes), int(tam_rec))]
+                st.markdown(f"**{len(faltantes)} códigos faltantes · {len(tandas_rec)} tanda(s) de recuperación**")
+
+                tabs_rec = st.tabs([f"Recuperación {i+1} ({len(t)} cód.)" for i, t in enumerate(tandas_rec)])
+
+                for i, (tab_r, tanda_r) in enumerate(zip(tabs_rec, tandas_rec)):
+                    with tab_r:
+                        t_min_r = int(len(tanda_r) * max(pausa_rec - var_rec, 1))
+                        t_max_r = int(len(tanda_r) * (pausa_rec + var_rec))
+                        st.markdown(
+                            f'<div class="tanda-info">📦 {len(tanda_r)} códigos · ⏱ {t_min_r}–{t_max_r} seg</div>',
+                            unsafe_allow_html=True
+                        )
+                        script_rec = generar_script(tanda_r, i, pausa_rec, var_rec, int(corte_rec))
+                        st.markdown(f'<div class="script-box">{script_rec}</div>', unsafe_allow_html=True)
+                        import json as _json
+                        script_rec_json = _json.dumps(script_rec)
+                        st.components.v1.html(f'''
+                        <script>var recScript_{i} = {script_rec_json};</script>
+                        <button id="reccb{i}" onclick="
+                            navigator.clipboard.writeText(recScript_{i}).then(function() {{
+                                var b = document.getElementById(\'reccb{i}\');
+                                b.innerText = \'\u2705 Copiado\';
+                                b.style.color = \'#4caf50\';
+                                b.style.borderColor = \'#4caf50\';
+                                setTimeout(function() {{
+                                    b.innerText = \'\U0001f4cb Copiar script Recuperación {i+1}\';
+                                    b.style.color = \'#4fc3f7\';
+                                    b.style.borderColor = \'#4fc3f7\';
+                                }}, 2500);
+                            }});
+                        " style="background:transparent;border:2px solid #4fc3f7;color:#4fc3f7;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px;">
+                            📋 Copiar script Recuperación {i+1}
+                        </button>
+                        ''', height=60)
