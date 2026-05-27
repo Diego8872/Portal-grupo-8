@@ -301,25 +301,28 @@ if st.session_state.procesado and st.session_state.codigos_raw:
             script = generar_script(tanda, i, pausa, variacion, int(corte_403))
             st.markdown(f'<div class="script-box">{script}</div>', unsafe_allow_html=True)
 
-            # Botón copiar al portapapeles via JS
-            script_js = script.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+            # Botón copiar al portapapeles — el script se pasa como JSON para evitar problemas de escapado
+            import json as _json
+            script_json = _json.dumps(script)
             st.components.v1.html(f'''
-            <button onclick="
-                navigator.clipboard.writeText(document.getElementById(\'sc{i}\').innerText).then(function() {{
+            <script>
+                var scriptContent_{i} = {script_json};
+            </script>
+            <button id="cb{i}" onclick="
+                navigator.clipboard.writeText(scriptContent_{i}).then(function() {{
                     var b = document.getElementById(\'cb{i}\');
                     b.innerText = \'✅ Copiado\';
                     b.style.color = \'#4caf50\';
                     b.style.borderColor = \'#4caf50\';
-                    setTimeout(function(){{
+                    setTimeout(function() {{
                         b.innerText = \'📋 Copiar script Tanda {i+1}\';
                         b.style.color = \'#4fc3f7\';
                         b.style.borderColor = \'#4fc3f7\';
                     }}, 2500);
                 }});
-            " id="cb{i}" style="background:transparent;border:2px solid #4fc3f7;color:#4fc3f7;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px;">
+            " style="background:transparent;border:2px solid #4fc3f7;color:#4fc3f7;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px;">
                 📋 Copiar script Tanda {i+1}
             </button>
-            <pre id="sc{i}" style="display:none">{script_js}</pre>
             ''', height=60)
 
     # ════════════════════════════════════════════════════════════════════════
