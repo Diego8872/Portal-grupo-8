@@ -43,10 +43,14 @@ st.markdown("""
         line-height: 1.8;
     }
     .tanda-info {
-        font-size: 1rem;
+        font-size: 1.05rem;
         font-weight: 700;
-        color: #e0f2fe;
+        color: #ffffff !important;
         margin-bottom: 0.5rem;
+        background: #1e2a35;
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        display: inline-block;
     }
     .config-help {
         font-size: 0.78rem;
@@ -292,24 +296,31 @@ if st.session_state.procesado and st.session_state.codigos_raw:
                 unsafe_allow_html=True
             )
 
-            if done:
-                col_b.success("✅ Script pegado")
-                col_b.caption("Marcada como ejecutada")
-            else:
-                if col_b.button("✓ Marcar ejecutada", key=f"done_{i}"):
-                    st.session_state.tandas_done.add(i)
-                    st.rerun()
+
 
             script = generar_script(tanda, i, pausa, variacion, int(corte_403))
             st.markdown(f'<div class="script-box">{script}</div>', unsafe_allow_html=True)
 
-            st.download_button(
-                label="⬇️ Descargar script como .txt",
-                data=script,
-                file_name=f"cat_script_tanda_{i+1}.txt",
-                mime="text/plain",
-                key=f"dl_{i}"
-            )
+            # Botón copiar al portapapeles via JS
+            script_js = script.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+            st.components.v1.html(f'''
+            <button onclick="
+                navigator.clipboard.writeText(document.getElementById(\'sc{i}\').innerText).then(function() {{
+                    var b = document.getElementById(\'cb{i}\');
+                    b.innerText = \'✅ Copiado\';
+                    b.style.color = \'#4caf50\';
+                    b.style.borderColor = \'#4caf50\';
+                    setTimeout(function(){{
+                        b.innerText = \'📋 Copiar script Tanda {i+1}\';
+                        b.style.color = \'#4fc3f7\';
+                        b.style.borderColor = \'#4fc3f7\';
+                    }}, 2500);
+                }});
+            " id="cb{i}" style="background:transparent;border:2px solid #4fc3f7;color:#4fc3f7;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px;">
+                📋 Copiar script Tanda {i+1}
+            </button>
+            <pre id="sc{i}" style="display:none">{script_js}</pre>
+            ''', height=60)
 
     # ════════════════════════════════════════════════════════════════════════
     # PASO 3 — CONSOLIDAR
