@@ -421,22 +421,49 @@ def buscar_fabricante(origen_str, mat_code, df_fab):
     origen_limpio = limpiar_str(origen)
     match_norm = None
     match_parcial = None
+    match_row_norm = None
+    match_row_parcial = None
     for _, row in df_fab.iterrows():
         en_hist = str(row['En Historico']).strip()
         if not en_hist or en_hist == 'nan':
             continue
         en_hist_limpio = limpiar_str(en_hist)
         if origen == en_hist:
-            return row['Corresponde'], None
+            return row['Corresponde'], None, row
         if match_norm is None and origen_limpio == en_hist_limpio:
             match_norm = row['Corresponde']
+            match_row_norm = row
         if match_parcial is None and en_hist_limpio in origen_limpio:
             match_parcial = row['Corresponde']
+            match_row_parcial = row
     if match_norm:
-        return match_norm, None
+        return match_norm, None, match_row_norm
     if match_parcial:
-        return match_parcial, None
-    return None, f"Fabricante no encontrado para material {mat_code} (origen: {origen_str})"
+        return match_parcial, None, match_row_parcial
+    return None, f"Fabricante no encontrado para material {mat_code} (origen: {origen_str})", None
+
+
+def extraer_origen_de_fila_fab(fab_row):
+    """
+    Dado el row de Fabricantes que matcheó, extrae el país buscando en
+    'En Historico' y 'Corresponde'. Retorna (pais, lista_paises_encontrados).
+    """
+    if fab_row is None:
+        return None, []
+
+    textos = [
+        str(fab_row.get('En Historico', '')),
+        str(fab_row.get('Corresponde', '')),
+    ]
+    paises_encontrados = []
+    for texto in textos:
+        p = _extraer_pais_de_texto(texto)
+        if p and p not in paises_encontrados:
+            paises_encontrados.append(p)
+
+    if len(paises_encontrados) == 1:
+        return paises_encontrados[0], paises_encontrados
+    return None, paises_encontrados
 
 def buscar_ncm(mat_code, df_ncm):
     found = df_ncm[df_ncm['Artículo'] == str(mat_code)]
@@ -1295,6 +1322,331 @@ def generar_zip(grupos, invoice, col_cantidad_header='Cantidad', materiales_rotu
     buf.seek(0)
     return buf.getvalue()
 
+# ═══════════════════════════════════════════════════════════
+# FUNCIONES FIABILA
+# ═══════════════════════════════════════════════════════════
+
+def parsear_coa_pdf(file_bytes):
+    """
+    Extrae Batch, Expired date y Customer Code de un COA PDF de Fiabila.
+    Retorna dict: {'batch': str, 'expired': str (MM/YYYY), 'customer_code': str} o None
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        return None, "pdfplumber no disponible"
+
+    texto = ''
+    with pdfplumber.open(BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            texto += (page.extract_text() or '') + '\n'
+
+    resultado = {}
+
+    # Batch
+    m = re.search(r'Batch\s*:\s*([^\s]+)', texto, re.IGNORECASE)
+    if m:
+        resultado['batch'] = m.group(1).strip()
+
+    # Expired date — formato "09 Apr 29" o "09 Apr 2029"
+    m = re.search(r'Expired\s+date\s*:\s*(\d{1,2}\s+\w{3}\s+\d{2,4})', texto, re.IGNORECASE)
+    if m:
+        fecha_str = m.group(1).strip()
+        try:
+            # Intentar parsear "09 Apr 29" o "09 Apr 2029"
+            for fmt in ('%d %b %y', '%d %b %Y'):
+                try:
+                    fecha = datetime.strptime(fecha_str, fmt)
+                    resultado['expired'] = f"{fecha.month:02d}/{fecha.year}"
+                    break
+                except:
+                    pass
+        except:
+            resultado['expired'] = fecha_str
+
+    # Customer Code — formato "Descripcion /1-XXXXX" en Customer Shade
+    m = re.search(r'Customer\s+Shade\s*:,?\s*(.+?)/(1-\d+)', texto, re.IGNORECASE)
+    if m:
+        resultado['customer_code'] = m.group(2).strip()
+        resultado['shade_desc'] = m.group(1).strip()
+    else:
+        # Fallback: buscar patrón 1-XXXXX en el texto
+        m = re.search(r'(1-\d{4,})', texto)
+        if m:
+            resultado['customer_code'] = m.group(1).strip()
+
+    if not resultado:
+        return None, "No se pudo extraer información del COA"
+
+    return resultado, None
+
+
+def cargar_pl_fiabila(file_bytes):
+    """
+    Lee el Excel de Fiabila (Invoice + PL).
+    Retorna:
+      - invoice_rows: dict {customer_code: cantidad_kg} desde hoja Invoice
+      - pl_rows: list de dicts {customer_code, descripcion, lote_batch, cantidad_kg}
+      - invoice_number: str
+    """
+    with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
+        f.write(file_bytes)
+        tmp = f.name
+
+    xl = pd.ExcelFile(tmp)
+    invoice_rows = {}
+    pl_rows = []
+    invoice_number = None
+
+    for sh in xl.sheet_names:
+        sh_upper = sh.upper()
+        df = pd.read_excel(tmp, sheet_name=sh, header=None)
+
+        # ── Extraer invoice number ──
+        if invoice_number is None:
+            for i in range(min(5, len(df))):
+                for v in df.iloc[i].values:
+                    s = str(v)
+                    m = re.search(r'invoice\s*(?:number)?[:\s]+([^\s]+)', s, re.IGNORECASE)
+                    if m:
+                        invoice_number = m.group(1).strip()
+                        break
+                if invoice_number:
+                    break
+
+        # ── Hoja Invoice: una línea por producto, cantidad total ──
+        if 'INVOICE' in sh_upper and 'PL' not in sh_upper:
+            # Buscar header
+            header_row = None
+            for i, row in df.iterrows():
+                row_str = ' '.join(str(v).upper() for v in row.values if pd.notna(v))
+                if 'CUSTOMER CODE' in row_str or 'CUSTOMER  CODE' in row_str:
+                    header_row = i
+                    break
+            if header_row is None:
+                continue
+            headers = [str(v).strip().upper() if pd.notna(v) else '' for v in df.iloc[header_row].values]
+
+            col_code = col_qty = col_desc = None
+            for idx, h in enumerate(headers):
+                if 'CUSTOMER CODE' in h and col_code is None:
+                    col_code = idx
+                if any(k in h for k in ['QUANTITY KG', 'QTY KG', 'QUANTITY', 'KG']) and 'GROSS' not in h and col_qty is None:
+                    col_qty = idx
+                if any(k in h for k in ['DESCRIPTION', 'DESCRIP']) and col_desc is None:
+                    col_desc = idx
+
+            if col_code is None:
+                continue
+
+            for i in range(header_row + 1, len(df)):
+                row = df.iloc[i]
+                cod = str(row.iloc[col_code]).strip() if pd.notna(row.iloc[col_code]) else ''
+                if not re.match(r'^\d+-\d+', cod):
+                    continue
+                qty = None
+                if col_qty is not None and pd.notna(row.iloc[col_qty]):
+                    try:
+                        qty = float(row.iloc[col_qty])
+                    except:
+                        pass
+                desc = str(row.iloc[col_desc]).strip() if col_desc and pd.notna(row.iloc[col_desc]) else ''
+                invoice_rows[cod] = {'cantidad': qty, 'descripcion': desc}
+
+        # ── Hoja PL: puede tener múltiples filas por producto (distintos lotes) ──
+        elif 'PL' in sh_upper:
+            header_row = None
+            for i, row in df.iterrows():
+                row_str = ' '.join(str(v).upper() for v in row.values if pd.notna(v))
+                if 'CUSTOMER CODE' in row_str or 'BATCH' in row_str:
+                    header_row = i
+                    break
+            if header_row is None:
+                continue
+            headers = [str(v).strip().upper() if pd.notna(v) else '' for v in df.iloc[header_row].values]
+
+            col_code = col_batch = col_desc = col_qty = None
+            for idx, h in enumerate(headers):
+                if 'CUSTOMER CODE' in h and col_code is None:
+                    col_code = idx
+                if 'BATCH' in h and col_batch is None:
+                    col_batch = idx
+                if any(k in h for k in ['DESCRIPTION', 'DESCRIP']) and col_desc is None:
+                    col_desc = idx
+                if any(k in h for k in ['TOTAL NET WEIGHT', 'NET WEIGHT']) and col_qty is None:
+                    col_qty = idx
+
+            if col_code is None:
+                continue
+
+            for i in range(header_row + 1, len(df)):
+                row = df.iloc[i]
+                cod = str(row.iloc[col_code]).strip() if pd.notna(row.iloc[col_code]) else ''
+                if not re.match(r'^\d+-\d+', cod):
+                    continue
+                batch = str(row.iloc[col_batch]).strip() if col_batch is not None and pd.notna(row.iloc[col_batch]) else ''
+                desc = str(row.iloc[col_desc]).strip() if col_desc is not None and pd.notna(row.iloc[col_desc]) else ''
+                qty = None
+                if col_qty is not None and pd.notna(row.iloc[col_qty]):
+                    try:
+                        qty = float(row.iloc[col_qty])
+                    except:
+                        pass
+                pl_rows.append({'customer_code': cod, 'batch': batch, 'descripcion': desc, 'cantidad': qty})
+
+    return invoice_rows, pl_rows, invoice_number
+
+
+def procesar_fiabila(invoice_rows, pl_rows, coas, df_avon, df_fab, df_ncm):
+    """
+    Cruza Invoice + PL + COAs + bases ANMAT/Avon para generar filas del Anexo.
+    Lógica de cantidad:
+      - Si un customer_code tiene un solo lote en el PL → usa cantidad de Invoice
+      - Si tiene múltiples lotes distintos → una línea por lote con cantidad del PL
+    """
+    filas = []
+    alertas = []
+
+    # Agrupar PL por customer_code → lotes
+    from collections import defaultdict
+    pl_por_codigo = defaultdict(list)
+    for row in pl_rows:
+        pl_por_codigo[row['customer_code']].append(row)
+
+    for cod, inv_data in invoice_rows.items():
+        avon_row = buscar_avon(cod, df_avon)
+        if avon_row is None:
+            alertas.append(f"⚠️ {cod} — no encontrado en Registros Avon")
+            continue
+
+        def _get_avon(row, variantes, default=''):
+            for v in variantes:
+                val = row.get(v)
+                if val is not None and str(val).strip() not in ('', 'nan'):
+                    return str(val).strip()
+            for k in row.index:
+                k_norm = str(k).strip().lower().replace(' ','').replace('/','').replace('\n','')
+                for v in variantes:
+                    v_norm = v.strip().lower().replace(' ','').replace('/','').replace('\n','')
+                    if k_norm == v_norm:
+                        s = str(row[k]).strip()
+                        if s and s != 'nan':
+                            return s
+            return default
+
+        nombre = _get_avon(avon_row, ['NOMBRE DE REGISTRO DE PRODUCTO', 'NOMBRE REGISTRO'])
+        contenido = _get_avon(avon_row, ['CONTENIDO LEGAL', 'CONTENIDO'])
+        registro = _get_avon(avon_row, [
+            'Reg. SP   (Trámite#)\nARGENTINA NATURA',
+            'Reg. SP   (Trámite#)\nNATURA ARG',
+            'Reg. SP (Trámite#)\nARGENTINA NATURA',
+            'Reg. SP   (Tramite#)\nARGENTINA NATURA',
+            'Reg. SP   (Trámite#)\nNATURA ARGENTINA',
+        ])
+        elaborador = _get_avon(avon_row, ['ELABORADOR (ORIGEN)', 'ELABORADOR'])
+
+        # Fabricante: para Fiabila buscar por keyword 'fiabila' en tabla si el match normal falla
+        fab, alerta_fab, fab_row = buscar_fabricante(elaborador, cod, df_fab)
+        if alerta_fab:
+            alertas.append(alerta_fab)
+
+        ncm, alerta_ncm = buscar_ncm(cod, df_ncm)
+        if alerta_ncm:
+            alertas.append(alerta_ncm)
+
+        # Origen — extraer país desde la fila de Fabricantes que matcheó
+        origen = ''
+        alerta_origen_cod = None
+        if fab_row is not None:
+            pais, paises_encontrados = extraer_origen_de_fila_fab(fab_row)
+            if len(paises_encontrados) == 0:
+                alerta_origen_cod = f"⚠️ {cod} — no se encontró país de origen en Fabricantes. Completar manualmente."
+            elif len(paises_encontrados) > 1:
+                alerta_origen_cod = f"⚠️ {cod} — origen ambiguo: {', '.join(paises_encontrados)}. Indicar cuál corresponde."
+            else:
+                origen = pais
+        elif not alerta_fab:
+            alerta_origen_cod = f"⚠️ {cod} — fabricante no encontrado, no se puede determinar origen."
+
+        if alerta_origen_cod:
+            alertas.append(alerta_origen_cod)
+
+        # Determinar lotes del PL
+        pl_filas = pl_por_codigo.get(cod, [])
+        lotes_unicos = list({r['batch']: r for r in pl_filas}.values())
+
+        # Buscar COA para cada lote
+        coa_por_batch = {c['batch']: c for c in coas if 'batch' in c and c.get('customer_code') == cod}
+
+        if len(lotes_unicos) <= 1:
+            # Un solo lote → cantidad de Invoice
+            batch = lotes_unicos[0]['batch'] if lotes_unicos else ''
+            coa = coa_por_batch.get(batch, {})
+            expired = coa.get('expired', '')
+            if not expired:
+                alertas.append(f"⚠️ {cod} — no se encontró COA para batch {batch}")
+            cantidad = inv_data.get('cantidad', '')
+            desc = inv_data.get('descripcion', '') or (lotes_unicos[0]['descripcion'] if lotes_unicos else '')
+
+            filas.append({
+                'MATERIAL': cod,
+                'descripcion_factura': desc,
+                'Marca y Nombre del producto': nombre,
+                'Variedades': '',
+                'Presentación': contenido,
+                'Cantidad': cantidad,
+                'N° de inscripcion': registro,
+                'Lote': batch,
+                'Fecha de vencimiento': expired,
+                'Origen': origen,
+                'Fabricante': fab or '',
+                'Posición Arancelaria': ncm or '',
+                '_alertas': [alerta_origen_cod] if alerta_origen_cod else [],
+                '_skip': False, '_avon': False,
+                '_necesita_completar': bool(alerta_origen_cod),
+                '_vencimiento': None, '_multi_registro': False, '_expanded': False,
+                '_origen_ambiguo': alerta_origen_cod is not None,
+                '_paises_encontrados': paises_encontrados if alerta_origen_cod else [],
+            })
+        else:
+            # Múltiples lotes → una línea por lote con cantidad del PL
+            for lote_row in lotes_unicos:
+                batch = lote_row['batch']
+                coa = coa_por_batch.get(batch, {})
+                expired = coa.get('expired', '')
+                if not expired:
+                    alertas.append(f"⚠️ {cod} — no se encontró COA para batch {batch}")
+                cantidad_lote = sum(
+                    r['cantidad'] for r in pl_filas
+                    if r['batch'] == batch and r['cantidad'] is not None
+                )
+                desc = inv_data.get('descripcion', '') or lote_row['descripcion']
+
+                filas.append({
+                    'MATERIAL': cod,
+                    'descripcion_factura': desc,
+                    'Marca y Nombre del producto': nombre,
+                    'Variedades': '',
+                    'Presentación': contenido,
+                    'Cantidad': cantidad_lote if cantidad_lote else '',
+                    'N° de inscripcion': registro,
+                    'Lote': batch,
+                    'Fecha de vencimiento': expired,
+                    'Origen': origen,
+                    'Fabricante': fab or '',
+                    'Posición Arancelaria': ncm or '',
+                    '_alertas': [alerta_origen_cod] if alerta_origen_cod else [],
+                    '_skip': False, '_avon': False,
+                    '_necesita_completar': bool(alerta_origen_cod),
+                    '_vencimiento': None, '_multi_registro': False, '_expanded': False,
+                    '_origen_ambiguo': alerta_origen_cod is not None,
+                    '_paises_encontrados': paises_encontrados if alerta_origen_cod else [],
+                })
+
+    return filas, alertas
+
+
+
 # SESSION STATE
 defaults = {
     'filas_procesadas':        None,
@@ -1311,6 +1663,7 @@ defaults = {
     'invoice_muestras':        None,
     'alertas_muestras':        [],
     'col_cantidad_muestras':   'Cantidad',
+    'fiabila_coas':            [],
     # Equivalentes: dict {material: {'codigo': str, 'datos': dict|None, 'fuente': str|None, 'error': str|None}}
     'equivalentes':            {},
     # Rotulado
@@ -1330,7 +1683,7 @@ for k, v in defaults.items():
 st.markdown('<div class="card"><h3><span class="step-badge">0</span>Tipo de operación</h3>', unsafe_allow_html=True)
 modo = st.radio(
     "¿Qué tipo de operación es?",
-    options=["Operación normal", "Muestras Natura"],
+    options=["Operación normal", "Muestras Natura", "Fiabila"],
     horizontal=True,
     key='p6_modo_radio'
 )
@@ -1428,11 +1781,15 @@ if modo == "Muestras Natura":
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════
-# RAMA B: OPERACIÓN NORMAL
+# RAMA B: OPERACIÓN NORMAL + FIABILA
 # ═══════════════════════════════════════════════════════════
-else:
+elif modo in ("Operación normal", "Fiabila"):
 
     st.markdown('<div class="card"><h3><span class="step-badge">1</span>Archivos de la operación</h3>', unsafe_allow_html=True)
+
+    if modo == "Fiabila":
+        st.markdown('<div class="modo-muestras" style="border-color:#9b59b6;background:linear-gradient(135deg,#f5eef8,#e8daef);margin-bottom:12px;">🧪 Modo Fiabila — lote y vencimiento se extraen de los COA. El PL debe tener solapas Invoice + PL.</div>', unsafe_allow_html=True)
+
     st.markdown("**📌 Número de referencia de la operación**")
     nro_referencia = st.text_input("", placeholder="ej: 4550595912", label_visibility="collapsed")
 
@@ -1454,9 +1811,18 @@ else:
         f_avon  = st.file_uploader("🌸 Registros Avon",               type=['xlsx'],        key='p6_avon')
         f_fab   = st.file_uploader("🏭 Fabricantes",                   type=['xls','xlsx'],  key='p6_fab')
         f_ncm   = st.file_uploader("📊 Catálogo NCM",                  type=['xlsx'],        key='p6_ncm')
+
+    f_coas = []
+    if modo == "Fiabila":
+        f_coas = st.file_uploader("📄 COA(s) PDF — subí todos los de la operación",
+                                   type=['pdf'], accept_multiple_files=True, key='p6_coas_fiabila')
+
     st.markdown('</div>', unsafe_allow_html=True)
 
-    archivos_ok = all([f_pl, f_prox, f_anmat, f_avon, f_fab, f_ncm])
+    archivos_ok = all([f_pl, f_anmat, f_avon, f_fab, f_ncm]) and (
+        (modo == "Operación normal" and f_prox) or
+        (modo == "Fiabila" and len(f_coas) > 0)
+    )
 
     if archivos_ok:
         st.markdown('<div class="card"><h3><span class="step-badge">2</span>Procesar operación</h3>', unsafe_allow_html=True)
@@ -1464,49 +1830,82 @@ else:
             with st.spinner('Procesando...'):
                 try:
                     suffix_fab = '.xls' if f_fab.name.endswith('.xls') else '.xlsx'
-                    pl, invoice        = cargar_pl(f_pl.read())
-
-                    anmat_bytes = f_anmat.read()
-                    avon_bytes  = f_avon.read()
-                    fab_bytes   = f_fab.read()
-                    ncm_bytes   = f_ncm.read()
-
-                    df_prox, es_pdf_prox, origen_explicito_prox, origen_proveedor_prox = cargar_proximas(f_prox.read(), f_prox.name)
-                    if es_pdf_prox and not origen_explicito_prox and origen_proveedor_prox:
-                        st.session_state.alerta_origen_proveedor = origen_proveedor_prox
-                    else:
-                        st.session_state.alerta_origen_proveedor = None
-
-                    df_anmat = cargar_anmat(anmat_bytes)
+                    avon_bytes = f_avon.read()
+                    fab_bytes  = f_fab.read()
+                    ncm_bytes  = f_ncm.read()
                     df_avon  = cargar_avon(avon_bytes)
                     df_fab   = cargar_fabricantes(fab_bytes, suffix=suffix_fab)
                     df_ncm   = cargar_ncm(ncm_bytes)
 
-                    # Guardar en session state para búsqueda de equivalentes
-                    st.session_state._df_anmat_cache = df_anmat
-                    st.session_state._df_avon_cache  = df_avon
-                    st.session_state._df_fab_cache   = df_fab
-                    st.session_state._df_ncm_cache   = df_ncm
+                    if modo == "Fiabila":
+                        coas_data = []
+                        coa_errores = []
+                        for coa_file in f_coas:
+                            datos, err = parsear_coa_pdf(coa_file.read())
+                            if err:
+                                coa_errores.append(f"⚠️ {coa_file.name}: {err}")
+                            else:
+                                datos['archivo'] = coa_file.name
+                                coas_data.append(datos)
 
-                    filas, alertas_excluir, alertas_avon, alertas_generales = procesar_pl(
-                        pl, df_anmat, df_avon, df_prox, df_fab, df_ncm
-                    )
+                        invoice_rows, pl_rows, invoice_number = cargar_pl_fiabila(f_pl.read())
+                        filas, alertas_generales = procesar_fiabila(
+                            invoice_rows, pl_rows, coas_data, df_avon, df_fab, df_ncm
+                        )
+                        alertas_generales = alertas_generales + coa_errores
 
-                    st.session_state.filas_procesadas       = filas
-                    st.session_state.alertas_excluir        = alertas_excluir
-                    st.session_state.alertas_avon           = alertas_avon
-                    st.session_state.alertas_generales      = alertas_generales
-                    st.session_state.invoice                = invoice
-                    st.session_state.excluidos              = set()
-                    st.session_state.datos_avon_completados = {}
-                    st.session_state.df_avon_editable       = None
-                    st.session_state._avon_init_invoice     = None
-                    st.session_state.equivalentes           = {}
-                    st.session_state.rotulado_activo        = False
-                    st.session_state.materiales_rotulado    = []
+                        st.session_state.filas_procesadas       = filas
+                        st.session_state.alertas_excluir        = []
+                        st.session_state.alertas_avon           = []
+                        st.session_state.alertas_generales      = alertas_generales
+                        st.session_state.invoice                = invoice_number
+                        st.session_state.excluidos              = set()
+                        st.session_state.datos_avon_completados = {}
+                        st.session_state.df_avon_editable       = None
+                        st.session_state._avon_init_invoice     = None
+                        st.session_state.equivalentes           = {}
+                        st.session_state.rotulado_activo        = False
+                        st.session_state.materiales_rotulado    = []
+                        st.session_state.fiabila_coas           = coas_data
+
+                    else:
+                        anmat_bytes = f_anmat.read()
+                        df_anmat = cargar_anmat(anmat_bytes)
+                        df_prox, es_pdf_prox, origen_explicito_prox, origen_proveedor_prox = cargar_proximas(f_prox.read(), f_prox.name)
+                        if es_pdf_prox and not origen_explicito_prox and origen_proveedor_prox:
+                            st.session_state.alerta_origen_proveedor = origen_proveedor_prox
+                        else:
+                            st.session_state.alerta_origen_proveedor = None
+
+                        pl, invoice = cargar_pl(f_pl.read())
+
+                        st.session_state._df_anmat_cache = df_anmat
+                        st.session_state._df_avon_cache  = df_avon
+                        st.session_state._df_fab_cache   = df_fab
+                        st.session_state._df_ncm_cache   = df_ncm
+
+                        filas, alertas_excluir, alertas_avon, alertas_generales = procesar_pl(
+                            pl, df_anmat, df_avon, df_prox, df_fab, df_ncm
+                        )
+
+                        st.session_state.filas_procesadas       = filas
+                        st.session_state.alertas_excluir        = alertas_excluir
+                        st.session_state.alertas_avon           = alertas_avon
+                        st.session_state.alertas_generales      = alertas_generales
+                        st.session_state.invoice                = invoice
+                        st.session_state.excluidos              = set()
+                        st.session_state.datos_avon_completados = {}
+                        st.session_state.df_avon_editable       = None
+                        st.session_state._avon_init_invoice     = None
+                        st.session_state.equivalentes           = {}
+                        st.session_state.rotulado_activo        = False
+                        st.session_state.materiales_rotulado    = []
+                        st.session_state.fiabila_coas           = []
 
                 except Exception as e:
+                    import traceback
                     st.error(f"Error al procesar: {e}")
+                    st.text(traceback.format_exc())
         st.markdown('</div>', unsafe_allow_html=True)
 
     if st.session_state.filas_procesadas is not None:
@@ -1529,6 +1928,20 @@ else:
             st.markdown(f'<div class="stat-card"><div class="number" style="color:#ff6b6b">{skip}</div><div class="label">No encontrados</div></div>', unsafe_allow_html=True)
 
         st.markdown('<br>', unsafe_allow_html=True)
+
+        # ── Preview COAs procesados (solo Fiabila) ──
+        if modo == "Fiabila":
+            coas_f = st.session_state.get('fiabila_coas', [])
+            if coas_f:
+                with st.expander(f"📄 COAs procesados ({len(coas_f)})"):
+                    for c in coas_f:
+                        st.markdown(
+                            f'<div class="info-box"><strong>{c.get("archivo","")}</strong> → '
+                            f'Batch: <strong>{c.get("batch","")}</strong> | '
+                            f'Customer Code: <strong>{c.get("customer_code","")}</strong> | '
+                            f'Vence: <strong>{c.get("expired","")}</strong></div>',
+                            unsafe_allow_html=True
+                        )
 
         # ── Alerta origen proveedor (PDF sin origen explícito) ──
         if st.session_state.get('alerta_origen_proveedor'):
