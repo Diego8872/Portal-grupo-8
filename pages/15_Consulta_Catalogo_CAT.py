@@ -2,22 +2,13 @@ import streamlit as st
 import pandas as pd
 import re
 import json
-import math
+import io
 
 st.set_page_config(page_title="Consulta Catálogo CAT", page_icon="🔧", layout="wide")
 
-# ─── Estilos ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     .block-container { padding-top: 2rem; }
-    .metric-card {
-        background: #1e2a35;
-        border-radius: 10px;
-        padding: 1rem 1.25rem;
-        text-align: center;
-    }
-    .metric-card .val { font-size: 2rem; font-weight: 700; color: #4fc3f7; }
-    .metric-card .lbl { font-size: 0.75rem; color: #90a4ae; margin-top: 2px; }
     .script-box {
         background: #0d1117;
         color: #58a6ff;
@@ -46,12 +37,24 @@ st.markdown("""
         border-radius: 8px;
         padding: 0.75rem 1rem;
         font-size: 0.9rem;
+        margin-bottom: 1rem;
+        color: #cfd8dc;
+        line-height: 1.8;
+    }
+    .tanda-info {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #e0f2fe;
         margin-bottom: 0.5rem;
+    }
+    .config-help {
+        font-size: 0.78rem;
+        color: #78909c;
+        margin-top: 2px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── Encabezado ─────────────────────────────────────────────────────────────
 st.markdown("## 🔧 Consulta Catálogo CAT")
 st.markdown("Consultá descripciones de repuestos en **parts.cat.com** sin instalar nada.")
 st.divider()
@@ -77,14 +80,11 @@ def normalizar(raw):
     s = re.sub(r'\s+', '', s)
     if not s or s in ('NAN', 'NONE', ''):
         return None
-    # Solo números de 7+ dígitos → formato XXX-XXXX
     if re.match(r'^\d{7,}$', s):
         return s[:-4] + '-' + s[-4:]
-    # Alfanumérico tipo 1P0459 → 1P-0459
     m = re.match(r'^([A-Z0-9]{2,4})(\d{4,})$', s)
     if m:
         return m.group(1) + '-' + m.group(2)
-    # Ya tiene guión → devolver tal cual
     if '-' in s:
         return s
     return s
@@ -92,12 +92,11 @@ def normalizar(raw):
 def armar_url(cod):
     return f"https://parts.cat.com/es/catcorp/product/{cod}"
 
-def generar_script(tandas_codigos, idx, pausa, variacion, corte):
-    urls = [armar_url(c) for c in tandas_codigos]
-    cods = tandas_codigos
+def generar_script(tanda_codigos, idx, pausa, variacion, corte):
+    urls = [armar_url(c) for c in tanda_codigos]
     return f"""(async () => {{
   const urls = {json.dumps(urls)};
-  const cods = {json.dumps(cods)};
+  const cods = {json.dumps(tanda_codigos)};
   const pausa = {int(pausa * 1000)};
   const variacion = {int(variacion * 1000)};
   const maxErrores = {corte};
@@ -115,14 +114,14 @@ def generar_script(tandas_codigos, idx, pausa, variacion, corte):
       if (res.status === 403) {{
         errores403++;
         console.warn(`403 en ${{cod}} (${{errores403}} seguidos)`);
-        resultados.push({{ codigo: cod, url, estado: '403', descripcion: '', titulo: '' }});
+        resultados.push({{ codigo: cod, url, estado: '403', descripcion: '' }});
         if (errores403 >= maxErrores) {{
           console.error('Corte por 403. Descargando parcial...');
           break;
         }}
       }} else if (res.status === 404) {{
         errores403 = 0;
-        resultados.push({{ codigo: cod, url, estado: '404', descripcion: 'No encontrado', titulo: '' }});
+        resultados.push({{ codigo: cod, url, estado: '404', descripcion: 'No encontrado' }});
       }} else {{
         errores403 = 0;
         const html = await res.text();
@@ -132,10 +131,10 @@ def generar_script(tandas_codigos, idx, pausa, variacion, corte):
         const meta = doc.querySelector('meta[name="description"]')?.content || '';
         const og = doc.querySelector('meta[property="og:title"]')?.content || '';
         const descripcion = titulo || og || meta || '';
-        resultados.push({{ codigo: cod, url, estado: 'ok', descripcion, titulo }});
+        resultados.push({{ codigo: cod, url, estado: 'ok', descripcion }});
       }}
     }} catch(e) {{
-      resultados.push({{ codigo: cod, url, estado: 'error', descripcion: e.message, titulo: '' }});
+      resultados.push({{ codigo: cod, url, estado: 'error', descripcion: e.message }});
     }}
     if (i < urls.length - 1) {{
       const ms = pausa + (Math.random() * 2 - 1) * variacion;
@@ -152,23 +151,18 @@ def generar_script(tandas_codigos, idx, pausa, variacion, corte):
   a.href = URL.createObjectURL(blob);
   a.download = 'cat_tanda_{idx+1}.csv';
   a.click();
-  console.log('\\n✅ Tanda {idx+1} completa. CSV descargado. (' + resultados.length + ' códigos)');
+  console.log('\\n✅ Tanda {idx+1} completa. CSV descargado.');
 }})();"""
 
-# ─── Session state ──────────────────────────────────────────────────────────
-if 'codigos_raw' not in st.session_state:
-    st.session_state.codigos_raw = []
-if 'unicos' not in st.session_state:
-    st.session_state.unicos = []
-if 'tandas' not in st.session_state:
-    st.session_state.tandas = []
-if 'tandas_done' not in st.session_state:
-    st.session_state.tandas_done = set()
+# ─── Session state ───────────────────────────────────────────────────────────
+for key, val in [('codigos_raw', []), ('unicos', []), ('tandas', []), ('tandas_done', set()), ('procesado', False)]:
+    if key not in st.session_state:
+        st.session_state[key] = val
 
 # ════════════════════════════════════════════════════════════════════════════
 # PASO 1 — CARGAR CÓDIGOS
 # ════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="step-header">📂 Paso 1 — Cargar códigos</div>', unsafe_allow_html=True)
+st.markdown('<div class="step-header">📂 Paso 1 — Cargar códigos de parte</div>', unsafe_allow_html=True)
 
 metodo = st.radio("Método de carga", ["Subir Excel / CSV", "Pegar códigos"], horizontal=True)
 
@@ -179,45 +173,73 @@ if metodo == "Subir Excel / CSV":
     if archivo:
         try:
             if archivo.name.endswith(".csv"):
-                df = pd.read_csv(archivo, header=None)
-                # Si la primera fila parece header, usarla
-                if str(df.iloc[0, 0]).strip().lower() in HEADERS_VALIDOS:
-                    df = pd.read_csv(archivo)
+                df_raw = pd.read_csv(archivo, header=None, dtype=str)
+                primera = str(df_raw.iloc[0, 0]).strip().lower()
+                if primera in HEADERS_VALIDOS:
+                    archivo.seek(0)
+                    df = pd.read_csv(archivo, dtype=str)
                     col = detectar_columna(df)
                 else:
+                    df = df_raw
                     col = df.columns[0]
             else:
-                df = pd.read_excel(archivo, header=None)
-                primera = str(df.iloc[0, 0]).strip().lower()
+                df_raw = pd.read_excel(archivo, header=None, dtype=str)
+                primera = str(df_raw.iloc[0, 0]).strip().lower()
                 if primera in HEADERS_VALIDOS:
-                    df = pd.read_excel(archivo)
+                    archivo.seek(0)
+                    df = pd.read_excel(archivo, dtype=str)
                     col = detectar_columna(df)
                 else:
+                    df = df_raw
                     col = df.columns[0]
 
             codigos_raw = df[col].dropna().astype(str).tolist()
-            st.success(f"✅ {len(codigos_raw)} filas cargadas desde columna **{col}**")
+            st.success(f"✅ {len(codigos_raw)} filas cargadas — columna detectada: **{col}**")
         except Exception as e:
             st.error(f"Error al leer el archivo: {e}")
 
 else:
-    texto = st.text_area("Pegá los códigos (uno por línea)", height=200,
-                         placeholder="2530857\n1P0459\n4T2584")
+    texto = st.text_area(
+        "Pegá los códigos — uno por línea",
+        height=180,
+        placeholder="2530857\n1P0459\n4T2584\n2530857"
+    )
     if texto.strip():
         codigos_raw = [l.strip() for l in texto.splitlines() if l.strip()]
 
-# ─── Configuración ──────────────────────────────────────────────────────────
+# Botón procesar
 if codigos_raw:
+    if st.button("▶ Procesar códigos", type="primary", use_container_width=False):
+        st.session_state.codigos_raw = codigos_raw
+        st.session_state.procesado = True
+        st.session_state.tandas_done = set()
+
+# ════════════════════════════════════════════════════════════════════════════
+# CONFIGURACIÓN + SCRIPTS (solo si procesado)
+# ════════════════════════════════════════════════════════════════════════════
+if st.session_state.procesado and st.session_state.codigos_raw:
+
+    codigos_raw = st.session_state.codigos_raw
+
     st.divider()
     st.markdown('<div class="step-header">⚙️ Configuración de tandas</div>', unsafe_allow_html=True)
 
+    st.markdown("""
+    <div class="instruccion">
+    <strong>Códigos por tanda:</strong> cuántos códigos consulta el script de una vez.<br>
+    <strong>Pausa entre requests:</strong> segundos que espera entre cada consulta. Más pausa = menos riesgo de bloqueo.<br>
+    <strong>Variación aleatoria:</strong> hace que la pausa no sea fija sino aleatoria (ej: 5 ± 2 = entre 3 y 7 seg). Simula comportamiento humano.<br>
+    <strong>Corte por 403:</strong> si CAT bloquea N veces seguidas, el script para y descarga lo que pudo.
+    </div>
+    """, unsafe_allow_html=True)
+
     c1, c2, c3, c4 = st.columns(4)
     tam_tanda = c1.number_input("Códigos por tanda", min_value=10, max_value=300, value=100, step=10)
-    pausa = c2.number_input("Pausa entre requests (seg)", min_value=2.0, max_value=30.0, value=5.0, step=0.5)
+    pausa     = c2.number_input("Pausa entre requests (seg)", min_value=2.0, max_value=30.0, value=5.0, step=0.5)
     variacion = c3.number_input("Variación aleatoria (±seg)", min_value=0.0, max_value=10.0, value=2.0, step=0.5)
     corte_403 = c4.number_input("Corte por 403 seguidos", min_value=1, max_value=10, value=3)
 
-    # Procesar
+    # Procesar códigos
     unicos_dict = {}
     for r in codigos_raw:
         n = normalizar(r)
@@ -225,25 +247,18 @@ if codigos_raw:
             unicos_dict[n] = True
     unicos = list(unicos_dict.keys())
     repetidos = len(codigos_raw) - len(unicos)
-    tandas = [unicos[i:i+tam_tanda] for i in range(0, len(unicos), tam_tanda)]
-
-    st.session_state.codigos_raw = codigos_raw
-    st.session_state.unicos = unicos
-    st.session_state.tandas = tandas
+    tandas = [unicos[i:i+int(tam_tanda)] for i in range(0, len(unicos), int(tam_tanda))]
 
     # Métricas
-    st.markdown("####")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Líneas totales", len(codigos_raw))
     m2.metric("Códigos únicos", len(unicos))
     m3.metric("Repetidos", repetidos)
     m4.metric("Tandas generadas", len(tandas))
 
-    # Vista previa
     with st.expander("Vista previa — primeros 10 códigos normalizados"):
-        prev = []
-        for raw, norm in zip(codigos_raw[:10], unicos[:10]):
-            prev.append({"Original": raw, "Normalizado": norm, "URL": armar_url(norm)})
+        prev = [{"Original": r, "Normalizado": normalizar(r), "URL": armar_url(normalizar(r))}
+                for r in codigos_raw[:10] if normalizar(r)]
         st.dataframe(pd.DataFrame(prev), use_container_width=True, hide_index=True)
 
     # ════════════════════════════════════════════════════════════════════════
@@ -254,39 +269,45 @@ if codigos_raw:
 
     st.markdown("""
     <div class="instruccion">
-    1. Abrí <strong>parts.cat.com</strong> en tu navegador corporativo<br>
-    2. Presioná <strong>F12</strong> → pestaña <strong>Console</strong><br>
-    3. Copiá el script de la tanda y pegalo en la consola → Enter<br>
-    4. Esperá que termine — se descarga un CSV automáticamente<br>
-    5. Repetí para cada tanda y volvé al Paso 3 para consolidar
+    1. Abrí <strong>parts.cat.com</strong> en tu navegador corporativo (cualquier página del sitio)<br>
+    2. Presioná <strong>F12</strong> → hacé click en la pestaña <strong>Console</strong><br>
+    3. Copiá el script de la tanda con el botón y pegalo en la consola → presioná <strong>Enter</strong><br>
+    4. Esperá que termine — se descarga un CSV automáticamente con los resultados<br>
+    5. Repetí para cada tanda. Cuando termines todas, pasá al Paso 3.
     </div>
     """, unsafe_allow_html=True)
 
-    tabs = st.tabs([f"Tanda {i+1} ({len(t)} cód.)" for i, t in enumerate(tandas)])
+    tabs = st.tabs([f"Tanda {i+1}  ({len(t)} cód.)" for i, t in enumerate(tandas)])
 
     for i, (tab, tanda) in enumerate(zip(tabs, tandas)):
         with tab:
-            tiempo_min = int(len(tanda) * (pausa - variacion))
-            tiempo_max = int(len(tanda) * (pausa + variacion))
-            done = i in st.session_state.tandas_done
+            t_min = int(len(tanda) * max(pausa - variacion, 1))
+            t_max = int(len(tanda) * (pausa + variacion))
+            done  = i in st.session_state.tandas_done
 
-            ca, cb = st.columns([3, 1])
-            ca.markdown(f"**{len(tanda)} códigos únicos** · Tiempo estimado: {tiempo_min}–{tiempo_max} seg")
+            col_a, col_b = st.columns([4, 1])
+            col_a.markdown(
+                f'<div class="tanda-info">📦 {len(tanda)} códigos únicos &nbsp;·&nbsp; ⏱ Tiempo estimado: {t_min}–{t_max} seg</div>',
+                unsafe_allow_html=True
+            )
+
             if done:
-                cb.success("✅ Completada")
+                col_b.success("✅ Script pegado")
+                col_b.caption("Marcada como ejecutada")
             else:
-                if cb.button(f"Marcar hecha", key=f"done_{i}"):
+                if col_b.button("✓ Marcar ejecutada", key=f"done_{i}"):
                     st.session_state.tandas_done.add(i)
                     st.rerun()
 
-            script = generar_script(tanda, i, pausa, variacion, corte_403)
+            script = generar_script(tanda, i, pausa, variacion, int(corte_403))
             st.markdown(f'<div class="script-box">{script}</div>', unsafe_allow_html=True)
+
             st.download_button(
-                label="📋 Descargar script como .txt",
+                label="⬇️ Descargar script como .txt",
                 data=script,
                 file_name=f"cat_script_tanda_{i+1}.txt",
                 mime="text/plain",
-                key=f"dl_script_{i}"
+                key=f"dl_{i}"
             )
 
     # ════════════════════════════════════════════════════════════════════════
@@ -296,7 +317,7 @@ if codigos_raw:
     st.markdown('<div class="step-header">📊 Paso 3 — Consolidar resultados</div>', unsafe_allow_html=True)
 
     csvs = st.file_uploader(
-        "Subí los CSV descargados por el navegador (podés seleccionar varios)",
+        "Subí los CSV descargados por el navegador (podés seleccionar varios a la vez)",
         type=["csv"],
         accept_multiple_files=True,
         key="csvs_resultado"
@@ -306,72 +327,66 @@ if codigos_raw:
         frames = []
         for f in csvs:
             try:
-                df_csv = pd.read_csv(f)
-                frames.append(df_csv)
+                frames.append(pd.read_csv(f))
             except Exception as e:
                 st.warning(f"No se pudo leer {f.name}: {e}")
 
         if frames:
             df_res = pd.concat(frames, ignore_index=True)
-
-            # Normalizar columnas del CSV resultado
             df_res.columns = [c.lower().strip() for c in df_res.columns]
+
             mapa = {}
             for _, row in df_res.iterrows():
                 cod = str(row.get('codigo', '')).strip()
                 if cod:
                     mapa[cod] = {
-                        'estado': row.get('estado', ''),
+                        'estado':      row.get('estado', ''),
                         'descripcion': row.get('descripcion', ''),
-                        'url': row.get('url', '')
+                        'url':         row.get('url', '')
                     }
 
-            # Reconstruir con originales + repetidos
             filas = []
             for raw in st.session_state.codigos_raw:
                 norm = normalizar(raw)
-                res = mapa.get(norm, {})
+                res  = mapa.get(norm, {})
                 filas.append({
-                    'Código original': raw,
+                    'Código original':    raw,
                     'Código normalizado': norm or raw,
-                    'Estado': res.get('estado', 'no consultado'),
-                    'Descripción': res.get('descripcion', ''),
-                    'URL': res.get('url', armar_url(norm) if norm else '')
+                    'Estado':             res.get('estado', 'no consultado'),
+                    'Descripción':        res.get('descripcion', ''),
+                    'URL':                res.get('url', armar_url(norm) if norm else '')
                 })
 
             df_final = pd.DataFrame(filas)
 
-            # Métricas resultado
-            ok = len(df_final[df_final['Estado'] == 'ok'])
-            no_enc = len(df_final[df_final['Estado'] == '404'])
-            bloq = len(df_final[df_final['Estado'] == '403'])
-            no_cons = len(df_final[df_final['Estado'] == 'no consultado'])
+            ok      = (df_final['Estado'] == 'ok').sum()
+            no_enc  = (df_final['Estado'] == '404').sum()
+            bloq    = (df_final['Estado'] == '403').sum()
+            no_cons = (df_final['Estado'] == 'no consultado').sum()
 
             r1, r2, r3, r4 = st.columns(4)
-            r1.metric("Encontrados", ok)
-            r2.metric("No encontrados (404)", no_enc)
-            r3.metric("Bloqueados (403)", bloq)
-            r4.metric("Sin consultar", no_cons)
+            r1.metric("✅ Encontrados",           ok)
+            r2.metric("❌ No encontrados (404)",  no_enc)
+            r3.metric("🚫 Bloqueados (403)",      bloq)
+            r4.metric("⏳ Sin consultar",          no_cons)
 
             st.dataframe(df_final, use_container_width=True, hide_index=True)
 
-            # Exportar
-            output = df_final.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="⬇️ Exportar resultado final (CSV)",
-                data=output,
-                file_name="cat_resultado_final.csv",
-                mime="text/csv"
-            )
-
-            # Exportar Excel
-            import io
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-                df_final.to_excel(writer, index=False, sheet_name='Resultado')
-            st.download_button(
-                label="⬇️ Exportar resultado final (Excel)",
-                data=buf.getvalue(),
-                file_name="cat_resultado_final.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            col_csv, col_xlsx = st.columns(2)
+            with col_csv:
+                st.download_button(
+                    label="⬇️ Exportar CSV final",
+                    data=df_final.to_csv(index=False).encode('utf-8'),
+                    file_name="cat_resultado_final.csv",
+                    mime="text/csv"
+                )
+            with col_xlsx:
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                    df_final.to_excel(writer, index=False, sheet_name='Resultado CAT')
+                st.download_button(
+                    label="⬇️ Exportar Excel final",
+                    data=buf.getvalue(),
+                    file_name="cat_resultado_final.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
