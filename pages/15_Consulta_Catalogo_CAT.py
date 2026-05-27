@@ -132,9 +132,12 @@ def generar_script(tanda_codigos, idx, pausa, variacion, corte):
         const html = await res.text();
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
-        const h1raw = doc.querySelector('h1')?.textContent?.trim() || '';
-        // Sacar el prefijo "CODIGO: " del h1 → quedarse con la descripción
-        const descripcion = h1raw.includes(':') ? h1raw.split(':').slice(1).join(':').trim() : h1raw;
+        const titleraw = doc.querySelector('title')?.textContent?.trim() || '';
+        // title viene como "9T-2869: 1652,4 Longitud... | Cat® Parts Store"
+        // → sacar prefijo código y sufijo "| Cat®..."
+        let descripcion = titleraw;
+        if (titleraw.includes(':')) descripcion = titleraw.split(':').slice(1).join(':').trim();
+        if (descripcion.includes('|')) descripcion = descripcion.split('|')[0].trim();
         resultados.push({{ codigo: cod, url, estado: 'ok', descripcion }});
       }}
     }} catch(e) {{
@@ -238,7 +241,7 @@ if st.session_state.procesado and st.session_state.codigos_raw:
     """, unsafe_allow_html=True)
 
     c1, c2, c3, c4 = st.columns(4)
-    tam_tanda = c1.number_input("Códigos por tanda", min_value=10, max_value=300, value=100, step=10)
+    tam_tanda = c1.number_input("Códigos por tanda", min_value=10, max_value=300, value=80, step=10)
     pausa     = c2.number_input("Pausa entre requests (seg)", min_value=2.0, max_value=30.0, value=5.0, step=0.5)
     variacion = c3.number_input("Variación aleatoria (±seg)", min_value=0.0, max_value=10.0, value=2.0, step=0.5)
     corte_403 = c4.number_input("Corte por 403 seguidos", min_value=1, max_value=10, value=3)
