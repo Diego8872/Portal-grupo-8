@@ -175,6 +175,13 @@ projects = [
         "desc": "Consultá normativa, impactos arancelarios y análisis del Acuerdo UE-Mercosur. Incluye cronograma de desgravación arancelaria. Fuentes verificadas.",
         "page": "pages/14_Acuerdo_EU_Mercosur.py"
     },
+    {
+        "icon": "🔧",
+        "name": "Consulta Catálogo CAT",
+        "tag": "Importaciones",
+        "desc": "Consulta masiva de descripciones de repuestos en parts.cat.com. Subí tu listado de códigos, generá los scripts por tanda y consolidá los resultados en un Excel.",
+        "page": "pages/15_Consulta_Catalogo_CAT.py"
+    },
 ]
 
 coming_soon = [
