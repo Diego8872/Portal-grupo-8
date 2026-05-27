@@ -132,10 +132,9 @@ def generar_script(tanda_codigos, idx, pausa, variacion, corte):
         const html = await res.text();
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
-        const titulo = doc.querySelector('h1')?.textContent?.trim() || '';
-        const meta = doc.querySelector('meta[name="description"]')?.content || '';
-        const og = doc.querySelector('meta[property="og:title"]')?.content || '';
-        const descripcion = titulo || og || meta || '';
+        const h1raw = doc.querySelector('h1')?.textContent?.trim() || '';
+        // Sacar el prefijo "CODIGO: " del h1 → quedarse con la descripción
+        const descripcion = h1raw.includes(':') ? h1raw.split(':').slice(1).join(':').trim() : h1raw;
         resultados.push({{ codigo: cod, url, estado: 'ok', descripcion }});
       }}
     }} catch(e) {{
