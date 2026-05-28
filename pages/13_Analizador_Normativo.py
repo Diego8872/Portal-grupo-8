@@ -37,6 +37,9 @@ st.markdown("""
 .norma-card p { color: rgba(255,255,255,0.75); }
 .chat-user { background: rgba(91,191,207,0.15); border-radius:10px; padding:0.8rem; margin:0.5rem 0; color: white; }
 .chat-ai { background: rgba(255,255,255,0.07); border-radius:10px; padding:0.8rem; margin:0.5rem 0; border:1px solid rgba(91,191,207,0.2); color: white; }
+[data-testid="stToolbar"] { visibility: hidden !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
