@@ -552,7 +552,7 @@ def buscar_equivalente_en_bases(cod_equiv, df_anmat, df_avon, df_prox, df_fab, d
             nombre = nombre + ' (REPUESTO)'
 
         origen_norm = normalizar_pais(origen).capitalize() if origen != 'nan' else ''
-        fab, _ = buscar_fabricante(origen, cod_equiv, df_fab)
+        fab, _, _fab_row = buscar_fabricante(origen, cod_equiv, df_fab)
         ncm, _ = buscar_ncm(cod_equiv, df_ncm)
 
         return {
@@ -647,7 +647,7 @@ def procesar_pl(pl, df_anmat, df_avon, df_prox, df_fab, df_ncm):
                 fila['_alertas'].append(alerta_origen)
                 alertas_generales.append(alerta_origen)
 
-            fab, alerta_fab = buscar_fabricante(origen, mat_code, df_fab)
+            fab, alerta_fab, _fab_row = buscar_fabricante(origen, mat_code, df_fab)
             if alerta_fab:
                 fila['_alertas'].append(alerta_fab)
                 alertas_generales.append(alerta_fab)
@@ -758,7 +758,7 @@ def procesar_pl(pl, df_anmat, df_avon, df_prox, df_fab, df_ncm):
                 fila['Origen'] = ''
                 fila['_necesita_completar'] = True
 
-                fab, alerta_fab = buscar_fabricante('', mat_code, df_fab)
+                fab, alerta_fab, _fab_row = buscar_fabricante('', mat_code, df_fab)
                 fila['Fabricante'] = fab if not alerta_fab else ''
 
                 avon_idx_actual = len(alertas_avon)
