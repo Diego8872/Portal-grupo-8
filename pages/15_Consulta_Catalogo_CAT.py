@@ -57,6 +57,9 @@ st.markdown("""
         color: #78909c;
         margin-top: 2px;
     }
+    [data-testid="stToolbar"] { visibility: hidden !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
