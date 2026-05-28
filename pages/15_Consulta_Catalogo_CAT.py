@@ -61,7 +61,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("## 🔧 Consulta Catálogo CAT")
-st.markdown("Consultá descripciones de repuestos en **parts.cat.com** sin instalar nada.")
+st.markdown("Consultá descripciones de repuestos en **parts.cat.com**.")
 st.divider()
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
