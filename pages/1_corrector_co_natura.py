@@ -109,6 +109,9 @@ section[data-testid="stFileUploadDropzone"] {
     width: 100%;
     font-weight: 500 !important;
 }
+[data-testid="stToolbar"] { visibility: hidden !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
