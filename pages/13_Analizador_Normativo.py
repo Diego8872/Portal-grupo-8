@@ -12,7 +12,7 @@ from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from utils import buscar_norma, leer_archivo, leer_excel
+from utils_normativa import buscar_norma, leer_archivo, leer_excel
 from analyzer import (
     analizar_norma, detectar_organismo_con_ia, saludo_inicial,
     chat_inicial_respuesta, generar_pregunta_output, responder_en_dialogo,
