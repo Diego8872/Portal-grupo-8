@@ -1,63 +1,53 @@
 """
 13_Analizador_Normativo.py — Analizador Universal de Normativa Argentina
 Página del portal Grupo 8 · Interlog
+Sincronizado con analyzer.py y utils.py v2
 """
 import streamlit as st
 import pandas as pd
-import json
 import io
 import os
 import sys
 from datetime import datetime
 
-# Agregar el path del repo del analizador para importar sus módulos
-sys.path.append(os.path.dirname(__file__))
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from utils import detectar_organismo, buscar_norma, leer_archivo, leer_excel
+from utils import buscar_norma, leer_archivo, leer_excel
 from analyzer import (
-    analizar_norma, generar_pregunta_output, responder_en_dialogo,
+    analizar_norma, detectar_organismo_con_ia, saludo_inicial,
+    chat_inicial_respuesta, generar_pregunta_output, responder_en_dialogo,
     detectar_columnas, clasificar_articulos, generar_resumen_ejecutivo,
     evaluar_confianza_anexo
 )
 
 # ── ESTILOS ───────────────────────────────────────────────────────────────────
-
-
 st.markdown("""
 <style>
 .norma-card {
     background: rgba(255,255,255,0.07);
-    border-radius: 12px;
-    padding: 1.5rem;
+    border-radius: 12px; padding: 1.5rem;
     border: 1px solid rgba(91,191,207,0.25);
-    margin-bottom: 1rem;
-    color: white;
+    margin-bottom: 1rem; color: white;
 }
 .norma-card h3 { color: white; }
-.norma-card p { color: rgba(255,255,255,0.75); }
+.norma-card p  { color: rgba(255,255,255,0.75); }
 .chat-user { background: rgba(91,191,207,0.15); border-radius:10px; padding:0.8rem; margin:0.5rem 0; color: white; }
-.chat-ai { background: rgba(255,255,255,0.07); border-radius:10px; padding:0.8rem; margin:0.5rem 0; border:1px solid rgba(91,191,207,0.2); color: white; }
-[data-testid="stToolbar"] { visibility: hidden !important; }
-    [data-testid="stDecoration"] { display: none !important; }
-    a[href*="github.com"] { display: none !important; }
+.chat-ai   { background: rgba(255,255,255,0.07); border-radius:10px; padding:0.8rem; margin:0.5rem 0; border:1px solid rgba(91,191,207,0.2); color: white; }
+[data-testid="stToolbar"]   { visibility: hidden !important; }
+[data-testid="stDecoration"]{ display: none !important; }
+a[href*="github.com"]       { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
-
 def init_state():
     defaults = {
-        "texto_norma": "",
-        "analisis": None,
-        "organismo": "BOLETIN",
-        "fuente": "",
-        "historial_chat": [],
-        "df_catalogo": None,
-        "cols_catalogo": None,
-        "resultados_cruce": None,
-        "confianza_anexo": None,
-        "fase": "busqueda",
-        "norma_nombre": "",
+        "texto_norma": "", "analisis": None, "organismo": "BOLETIN",
+        "fuente": "", "historial_chat": [], "df_catalogo": None,
+        "cols_catalogo": None, "resultados_cruce": None,
+        "confianza_anexo": None, "norma_nombre": "",
+        "chat_inicial": None, "detector_info": None,
+        "_anexos_iniciales": [],
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -66,20 +56,26 @@ def init_state():
 init_state()
 
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
-
 with st.sidebar:
     st.markdown("## ⚖️ Normativa AR")
     st.markdown("---")
     st.markdown("""
-🔍 Buscamos en BCRA, AFIP, DGI, Boletín Oficial y Fuentes Oficiales.
+🔍 Buscamos en BCRA, AFIP, DGI, Boletín Oficial y fuentes oficiales.
 
-Si no la encontramos, subí el PDF o pegá el texto — analizamos cualquier normativa argentina.
+Si no la encontramos, subí el PDF o pegá el texto.
     """)
     st.markdown("---")
 
     if st.button("🔄 Nueva consulta", use_container_width=True):
         for k in list(st.session_state.keys()):
             del st.session_state[k]
+        st.rerun()
+
+    if st.button("← Volver al portal", use_container_width=True):
+        st.session_state["texto_norma"] = ""
+        st.session_state["analisis"] = None
+        st.session_state["historial_chat"] = []
+        st.session_state["resultados_cruce"] = None
         st.rerun()
 
     if st.session_state.get("analisis"):
@@ -94,42 +90,22 @@ Si no la encontramos, subí el PDF o pegá el texto — analizamos cualquier nor
             c = st.session_state["confianza_anexo"]
             st.markdown(f"{c['icono']} Anexo: {c['nivel']}")
 
-    st.markdown("---")
-    api_key = st.text_input(
-        "API Key Anthropic", type="password",
-        value=os.environ.get("ANTHROPIC_API_KEY", ""),
-        help="O setear ANTHROPIC_API_KEY como variable de entorno"
-    )
-    if api_key:
-        os.environ["ANTHROPIC_API_KEY"] = api_key
-        import anthropic as _a
-        import analyzer as _az
-        _az.client = _a.Anthropic(api_key=api_key)
-
-# ── MAIN ──────────────────────────────────────────────────────────────────────
-
+# ── HEADER ────────────────────────────────────────────────────────────────────
 st.markdown("# ⚖️ Analizador de Normativa Argentina")
-st.markdown("Consultá, analizá y cruzá cualquier normativa argentina — buscá por número, subí el documento o describí lo que necesitás.")
+st.caption("Consultá, analizá y cruzá cualquier normativa — BCRA, AFIP, DGI, Boletín Oficial y más.")
 st.markdown("---")
 
 # ════════════════════════════════════════════════════════
 # FASE 1: BÚSQUEDA
 # ════════════════════════════════════════════════════════
-
 if not st.session_state["texto_norma"]:
 
-    # ── CHAT INICIAL ─────────────────────────────────────────────────────────
     st.markdown("### 💬 Contame qué necesitás")
 
-    if "chat_inicial" not in st.session_state:
+    if st.session_state["chat_inicial"] is None:
         st.session_state["chat_inicial"] = [{
             "role": "assistant",
-            "content": (
-                "Hola, soy tu asistente de normativa argentina. "
-                "Podés decirme el número de norma que querés analizar, "
-                "describir el tema, o contarme qué problema necesitás resolver — "
-                "y te ayudo a encontrar el camino. También podés usar los formularios de abajo directamente."
-            )
+            "content": saludo_inicial()
         }]
 
     for msg in st.session_state["chat_inicial"]:
@@ -137,23 +113,10 @@ if not st.session_state["texto_norma"]:
         icono = "👤" if msg["role"] == "user" else "🤖"
         st.markdown(f'<div class="{css}">{icono} {msg["content"]}</div>', unsafe_allow_html=True)
 
-    if consulta := st.chat_input("Escribí tu consulta o el número de norma..."):
+    if consulta := st.chat_input("Escribí el número de norma o describí lo que necesitás..."):
         st.session_state["chat_inicial"].append({"role": "user", "content": consulta})
-
-        import anthropic as _anth
-        _client = _anth.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-        with st.spinner("Pensando..."):
-            resp = _client.messages.create(
-                model="claude-opus-4-6",
-                max_tokens=400,
-                system="""Sos un asistente experto en normativa argentina (BCRA, AFIP, Aduana, Minería, Boletín Oficial y cualquier organismo).
-Tu rol es guiar al operador para encontrar y analizar la norma que necesita.
-Si menciona un número de norma, confirmalo y decile que lo busques o que lo suba.
-Si describe un problema o tema, orientalo hacia qué tipo de norma buscar.
-Sé breve, claro y directo. Máximo 3 oraciones.""",
-                messages=st.session_state["chat_inicial"]
-            )
-        respuesta = resp.content[0].text.strip()
+        with st.spinner("Analizando..."):
+            respuesta = chat_inicial_respuesta(st.session_state["chat_inicial"])
         st.session_state["chat_inicial"].append({"role": "assistant", "content": respuesta})
         st.rerun()
 
@@ -163,79 +126,88 @@ Sé breve, claro y directo. Máximo 3 oraciones.""",
     col1, col2 = st.columns([3, 2])
 
     with col1:
-        st.markdown("### 🔍 ¿Qué norma querés analizar?")
+        st.markdown("#### 🔍 Buscar por número")
         numero = st.text_input(
             "Número de norma",
-            placeholder="Ej: Com. A 8330 / RG 5424 / Res. SIC 5/2026 / Res. SPM 89/19",
-            help="Escribí el número y lo buscamos automáticamente en fuentes oficiales"
+            placeholder="Res 5838/2026 · Com. A 8330 · RG 5424 · Decreto 398/2026...",
         )
-
-        if st.button("🔎 Buscar norma", use_container_width=True, disabled=not numero):
-            with st.spinner("Buscando en fuentes oficiales..."):
-                organismo = detectar_organismo(numero)
+        if st.button("🔎 Buscar", use_container_width=True, disabled=not numero):
+            with st.spinner("Identificando organismo con IA..."):
+                detector = detectar_organismo_con_ia(numero)
+                organismo = detector.get("organismo", "BOLETIN")
+                st.session_state["detector_info"] = detector
+            with st.spinner(f"Buscando en fuentes oficiales ({organismo})..."):
                 texto, fuente = buscar_norma(numero)
-
             if texto and len(texto) > 200:
                 st.session_state.update({
-                    "texto_norma": texto,
-                    "organismo": organismo,
-                    "fuente": fuente,
-                    "norma_nombre": numero,
+                    "texto_norma": texto, "organismo": organismo,
+                    "fuente": fuente, "norma_nombre": numero,
                 })
                 st.rerun()
             else:
                 st.warning(
-                    "⚠️ No encontré la norma automáticamente en las fuentes oficiales. "
-                    "Podés subirla como archivo o pegar el texto abajo."
+                    f"⚠️ No encontré **{numero}** automáticamente. "
+                    f"{fuente if fuente.startswith('Error') else ''} "
+                    "Podés subir el archivo o pegar el texto abajo."
                 )
 
     with col2:
-        st.markdown("### 📎 O subila directamente")
-        archivo = st.file_uploader(
-            "PDF, Word o .txt",
+        st.markdown("#### 📎 Subir archivo")
+        archivos = st.file_uploader(
+            "PDF, Word o .txt — podés subir la norma + anexos juntos",
             type=["pdf", "docx", "doc", "txt"],
-            help="Subí el archivo de la resolución"
+            accept_multiple_files=True
         )
-        if archivo:
-            with st.spinner("Leyendo archivo..."):
-                texto = leer_archivo(archivo.read(), archivo.name)
-            if texto and len(texto) > 100:
-                st.session_state.update({
-                    "texto_norma": texto,
-                    "organismo": detectar_organismo(archivo.name),
-                    "fuente": f"Archivo: {archivo.name}",
-                    "norma_nombre": archivo.name,
-                })
-                st.success(f"✅ {len(texto):,} caracteres leídos")
-                st.rerun()
+        if archivos:
+            st.info(f"📄 {len(archivos)} archivo(s): {', '.join(f.name for f in archivos)}")
+            if st.button("⚖️ Analizar archivo(s)", use_container_width=True, type="primary"):
+                with st.spinner("Leyendo archivo(s)..."):
+                    norma = archivos[0]
+                    texto = leer_archivo(norma.read(), norma.name)
+                    detector = detectar_organismo_con_ia(norma.name)
+                    organismo = detector.get("organismo", "BOLETIN")
+                    anexos_usuario = []
+                    for f in archivos[1:]:
+                        contenido = leer_archivo(f.read(), f.name)
+                        nombre_limpio = (
+                            f.name.upper()
+                            .replace(".PDF","").replace(".DOCX","").replace(".TXT","")
+                            .replace("_"," ").replace("-"," ").strip()
+                        )
+                        anexos_usuario.append({"nombre": nombre_limpio, "contenido": contenido})
+                if texto and len(texto) > 100:
+                    st.session_state.update({
+                        "texto_norma": texto, "organismo": organismo,
+                        "fuente": f"Archivo: {norma.name}", "norma_nombre": norma.name,
+                        "_anexos_iniciales": anexos_usuario,
+                    })
+                    st.rerun()
 
-    st.markdown("### ✍️ O pegá el texto directamente")
-    texto_pegado = st.text_area(
-        "Texto de la norma",
-        height=200,
-        placeholder="Pegá aquí el texto completo de la resolución..."
-    )
-    if st.button("📋 Usar este texto", disabled=not texto_pegado):
+    st.markdown("#### ✍️ O pegá el texto")
+    texto_pegado = st.text_area("Texto de la norma", height=180,
+                                 placeholder="Pegá el texto completo de la resolución...")
+    if st.button("⚖️ Analizar texto", use_container_width=True,
+                 type="primary", disabled=not texto_pegado):
+        with st.spinner("Identificando norma..."):
+            detector = detectar_organismo_con_ia(texto_pegado[:200])
+            organismo = detector.get("organismo", "BOLETIN")
         st.session_state.update({
-            "texto_norma": texto_pegado,
-            "organismo": "BOLETIN",
-            "fuente": "Texto ingresado manualmente",
-            "norma_nombre": "Norma ingresada",
+            "texto_norma": texto_pegado, "organismo": organismo,
+            "fuente": "Texto ingresado manualmente", "norma_nombre": "Norma ingresada",
         })
         st.rerun()
 
 # ════════════════════════════════════════════════════════
 # FASE 2: ANÁLISIS
 # ════════════════════════════════════════════════════════
-
 else:
     texto = st.session_state["texto_norma"]
     organismo = st.session_state["organismo"]
 
-    # Analizar si no está en caché
     if not st.session_state["analisis"]:
-        with st.spinner("🤖 Claude analizando la norma como experto..."):
-            analisis = analizar_norma(texto, organismo)
+        anexos_iniciales = st.session_state.pop("_anexos_iniciales", [])
+        with st.spinner("🤖 Claude analizando la norma como experto senior..."):
+            analisis = analizar_norma(texto, organismo, anexos_usuario=anexos_iniciales or None)
             confianza = evaluar_confianza_anexo(texto, analisis.get("ncms_condiciones", {}))
             st.session_state["analisis"] = analisis
             st.session_state["confianza_anexo"] = confianza
@@ -243,7 +215,6 @@ else:
     analisis = st.session_state["analisis"]
     confianza = st.session_state["confianza_anexo"]
 
-    # Card de la norma
     st.markdown(f"""
     <div class="norma-card">
         <h3>📄 {analisis.get('titulo', st.session_state['norma_nombre'])}</h3>
@@ -252,57 +223,37 @@ else:
             <strong>Vigencia:</strong> {analisis.get('vigencia', 'N/D')} &nbsp;|&nbsp;
             <strong>Fuente:</strong> {st.session_state['fuente']}
         </p>
-        <p>{analisis.get('resumen', '')}</p>
     </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "💬 Chat con la norma",
-        "📊 Cruce con catálogo",
-        "📋 Puntos clave",
-        "📥 Exportar"
-    ])
+    tab1, tab2, tab3, tab4 = st.tabs(["💬 Chat", "📊 Cruce con catálogo", "📋 Análisis completo", "📥 Exportar"])
 
     # ── TAB 1: CHAT ──────────────────────────────────────────────────────────
     with tab1:
         st.markdown("#### 💬 Consultá sobre esta norma")
-        st.caption("Claude responde como experto en el área. Podés preguntar lo que necesites.")
+        st.caption("Claude responde como experto senior en normativa argentina.")
 
         for msg in st.session_state["historial_chat"]:
             css = "chat-user" if msg["role"] == "user" else "chat-ai"
             icono = "👤" if msg["role"] == "user" else "🤖"
-            st.markdown(
-                f'<div class="{css}">{icono} {msg["content"]}</div>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f'<div class="{css}">{icono} {msg["content"]}</div>', unsafe_allow_html=True)
 
         if not st.session_state["historial_chat"]:
-            with st.spinner("Preparando consulta inicial..."):
-                pregunta_inicial = generar_pregunta_output(analisis, [])
-            st.markdown(
-                f'<div class="chat-ai">🤖 {pregunta_inicial}</div>',
-                unsafe_allow_html=True
-            )
-            st.session_state["historial_chat"].append({
-                "role": "assistant", "content": pregunta_inicial
-            })
+            bienvenida = generar_pregunta_output(analisis, [])
+            st.markdown(f'<div class="chat-ai">🤖 {bienvenida}</div>', unsafe_allow_html=True)
+            st.session_state["historial_chat"].append({"role": "assistant", "content": bienvenida})
 
-        if pregunta := st.chat_input("Escribí tu consulta..."):
+        if pregunta := st.chat_input("Hacé tu consulta sobre esta norma..."):
             st.session_state["historial_chat"].append({"role": "user", "content": pregunta})
             with st.spinner("Analizando..."):
-                respuesta = responder_en_dialogo(
-                    texto, analisis,
-                    st.session_state["historial_chat"],
-                    organismo
-                )
+                respuesta = responder_en_dialogo(texto, analisis, st.session_state["historial_chat"], organismo)
             st.session_state["historial_chat"].append({"role": "assistant", "content": respuesta})
             st.rerun()
 
     # ── TAB 2: CRUCE ─────────────────────────────────────────────────────────
     with tab2:
-        st.markdown("#### 📊 Cruzá la norma con tu catálogo o datos")
+        st.markdown("#### 📊 Cruzá la norma con tu catálogo")
 
-        # Badge de confianza SIEMPRE visible
         if confianza["nivel"] == "sin_anexo":
             st.error(confianza["mensaje"])
         elif confianza["nivel"] == "parcial":
@@ -312,11 +263,7 @@ else:
         else:
             st.info(confianza["mensaje"])
 
-        archivo_cat = st.file_uploader(
-            "Subí tu Excel o CSV",
-            type=["xlsx", "xls", "csv"],
-            key="catalogo_upload"
-        )
+        archivo_cat = st.file_uploader("Subí tu Excel o CSV", type=["xlsx", "xls", "csv"], key="cat_upload")
 
         if archivo_cat:
             df = leer_excel(archivo_cat.read(), archivo_cat.name)
@@ -327,44 +274,28 @@ else:
 
                 if not st.session_state["cols_catalogo"]:
                     with st.spinner("Claude detectando columnas..."):
-                        cols = detectar_columnas(
-                            list(df.columns),
-                            df.head(4).to_dict(orient="records")
-                        )
+                        cols = detectar_columnas(list(df.columns), df.head(4).to_dict(orient="records"))
                     st.session_state["cols_catalogo"] = cols
 
                 cols = st.session_state["cols_catalogo"]
-                c1, c2, c3 = st.columns(3)
                 all_cols = [None] + list(df.columns)
+                def idx(c): return all_cols.index(c) if c in all_cols else 0
 
-                def idx(col): return all_cols.index(col) if col in all_cols else 0
-
-                with c1:
-                    cols["col_articulo"] = st.selectbox(
-                        "Columna artículo/código", all_cols, index=idx(cols.get("col_articulo")))
-                with c2:
-                    cols["col_ncm"] = st.selectbox(
-                        "Columna NCM / referencia", all_cols, index=idx(cols.get("col_ncm")))
-                with c3:
-                    cols["col_descripcion"] = st.selectbox(
-                        "Columna descripción (opcional)", all_cols, index=idx(cols.get("col_descripcion")))
+                c1, c2, c3 = st.columns(3)
+                with c1: cols["col_articulo"] = st.selectbox("Columna artículo", all_cols, index=idx(cols.get("col_articulo")))
+                with c2: cols["col_ncm"] = st.selectbox("Columna NCM", all_cols, index=idx(cols.get("col_ncm")))
+                with c3: cols["col_descripcion"] = st.selectbox("Columna descripción", all_cols, index=idx(cols.get("col_descripcion")))
 
                 ncms = analisis.get("ncms_condiciones", {})
-
-                if st.button("🚀 Iniciar cruce con IA", use_container_width=True, type="primary"):
+                if st.button("🚀 Iniciar cruce", use_container_width=True, type="primary"):
                     progress = st.progress(0)
                     status = st.empty()
-
                     def cb(pct):
                         progress.progress(pct)
                         status.text(f"Analizando fila {int(pct * len(df))} de {len(df)}...")
-
-                    resultados = clasificar_articulos(
-                        df, cols, ncms, texto, organismo, cb
-                    )
+                    resultados = clasificar_articulos(df, cols, ncms, texto, organismo, cb)
                     st.session_state["resultados_cruce"] = resultados
-                    progress.empty()
-                    status.empty()
+                    progress.empty(); status.empty()
                     st.rerun()
 
         if st.session_state["resultados_cruce"]:
@@ -372,84 +303,108 @@ else:
             enc = [r for r in resultados if r["estado"] == "ENCUADRA"]
             no  = [r for r in resultados if r["estado"] == "NO ENCUADRA"]
             aal = [r for r in resultados if r["estado"] == "A ANALIZAR"]
-
-            c1, c2, c3, c4 = st.columns(4)
+            c1,c2,c3,c4 = st.columns(4)
             c1.metric("Total", len(resultados))
             c2.metric("🟢 Encuadran", len(enc))
             c3.metric("🔴 No encuadran", len(no))
             c4.metric("🟡 A analizar", len(aal))
-
             df_r = pd.DataFrame(resultados)
             df_r["semaforo"] = df_r["color"] + " " + df_r["estado"]
-            st.dataframe(
-                df_r[["articulo", "ncm", "descripcion", "semaforo", "fundamento"]],
-                use_container_width=True, height=400
-            )
+            st.dataframe(df_r[["articulo","ncm","descripcion","semaforo","fundamento"]], use_container_width=True, height=400)
 
-    # ── TAB 3: PUNTOS CLAVE ───────────────────────────────────────────────────
+    # ── TAB 3: ANÁLISIS COMPLETO ──────────────────────────────────────────────
     with tab3:
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Puntos clave**")
-            for p in analisis.get("puntos_clave", []):
-                st.markdown(f"• {p}")
-            st.markdown("**Obligaciones**")
-            for o in analisis.get("obligaciones", []):
-                st.markdown(f"• {o}")
-        with c2:
-            st.markdown("**Afectados**")
-            for a in analisis.get("afectados", []):
-                st.markdown(f"• {a}")
-            if analisis.get("ncms_condiciones"):
-                st.markdown("**NCMs del Anexo**")
-                for ncm, cond in list(analisis["ncms_condiciones"].items())[:20]:
-                    st.markdown(f"• `{ncm}` — {cond or 'Sin condición adicional'}")
+        st.markdown("#### 📋 Análisis completo")
+
+        faltantes  = analisis.get("anexos_faltantes", [])
+        encontrados = analisis.get("anexos_encontrados", [])
+
+        if encontrados:
+            st.success(f"✅ Anexos incorporados: {', '.join(a['nombre'] for a in encontrados)}")
+
+        if faltantes:
+            st.warning(
+                f"⚠️ Esta norma menciona **{', '.join(faltantes)}** que no pudieron obtenerse. "
+                "Subí los PDFs para regenerar el análisis completo."
+            )
+            anexos_subidos = st.file_uploader(
+                "Subí los Anexos faltantes (PDF, Word o txt)",
+                type=["pdf", "docx", "txt"],
+                accept_multiple_files=True,
+                key="anexos_upload"
+            )
+            if anexos_subidos and st.button("📎 Incorporar Anexos y re-analizar", type="primary"):
+                anexos_usuario = []
+                for f in anexos_subidos:
+                    contenido = leer_archivo(f.read(), f.name)
+                    nombre_limpio = (
+                        f.name.upper()
+                        .replace(".PDF","").replace(".DOCX","").replace(".TXT","")
+                        .replace("_"," ").replace("-"," ").strip()
+                    )
+                    anexos_usuario.append({"nombre": nombre_limpio, "contenido": contenido})
+                with st.spinner(f"Regenerando análisis con {len(anexos_usuario)} anexo(s)..."):
+                    nuevo_analisis = analizar_norma(
+                        st.session_state["texto_norma"], organismo,
+                        anexos_usuario=anexos_usuario
+                    )
+                    nueva_confianza = evaluar_confianza_anexo(
+                        st.session_state["texto_norma"],
+                        nuevo_analisis.get("ncms_condiciones", {})
+                    )
+                    st.session_state["analisis"] = nuevo_analisis
+                    st.session_state["confianza_anexo"] = nueva_confianza
+                    st.session_state["historial_chat"] = []
+                st.success(f"✅ Análisis regenerado con {len(anexos_usuario)} anexo(s).")
+                st.rerun()
+
+        st.markdown(analisis.get("analisis_completo", ""), unsafe_allow_html=True)
+
+        if analisis.get("ncms_condiciones"):
+            st.markdown("**NCMs del Anexo**")
+            for ncm, cond in list(analisis["ncms_condiciones"].items())[:20]:
+                st.markdown(f"• `{ncm}` — {cond or 'Sin condición adicional'}")
 
         with st.expander("Ver texto completo de la norma"):
             st.text(texto[:6000] + ("..." if len(texto) > 6000 else ""))
 
+        debug = analisis.get("_debug", {})
+        if debug:
+            with st.expander("🔧 Debug — cobertura enviada al modelo"):
+                st.json(debug)
+
     # ── TAB 4: EXPORTAR ───────────────────────────────────────────────────────
     with tab4:
-        st.markdown("#### 📥 Exportar resultados")
+        st.markdown("#### 📥 Exportar análisis")
+        nombre_base = f"analisis_{datetime.now().strftime('%Y%m%d_%H%M')}"
+        resultados = st.session_state.get("resultados_cruce")
+
         c1, c2 = st.columns(2)
 
         with c1:
-            st.markdown("**Excel con semáforo**")
-            if st.session_state["resultados_cruce"]:
-                df_exp = pd.DataFrame(st.session_state["resultados_cruce"])
+            st.markdown("**📊 Excel**")
+            if resultados:
+                df_exp = pd.DataFrame(resultados)
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
                     df_exp.to_excel(writer, index=False, sheet_name="Análisis completo")
                     df_enc = df_exp[df_exp["estado"] == "ENCUADRA"]
                     df_no  = df_exp[df_exp["estado"] != "ENCUADRA"]
-                    if not df_enc.empty:
-                        df_enc.to_excel(writer, index=False, sheet_name="Encuadran")
-                    if not df_no.empty:
-                        df_no.to_excel(writer, index=False, sheet_name="No encuadran")
+                    if not df_enc.empty: df_enc.to_excel(writer, index=False, sheet_name="Encuadran")
+                    if not df_no.empty:  df_no.to_excel(writer, index=False, sheet_name="No encuadran")
                 buf.seek(0)
-                st.download_button(
-                    "⬇️ Descargar Excel",
-                    data=buf,
-                    file_name=f"analisis_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                st.download_button("⬇️ Descargar Excel", data=buf,
+                    file_name=f"{nombre_base}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+                    use_container_width=True)
             else:
-                st.info("Hacé el cruce primero para exportar el Excel.")
+                st.info("Hacé el cruce primero.")
 
         with c2:
-            st.markdown("**Memo ejecutivo**")
-            if st.button("📝 Generar memo", use_container_width=True):
-                with st.spinner("Redactando memo..."):
-                    memo = generar_resumen_ejecutivo(
-                        analisis,
-                        st.session_state["resultados_cruce"],
-                        organismo
-                    )
-                st.text_area("Memo", memo, height=350)
-                st.download_button(
-                    "⬇️ Descargar memo (.txt)",
-                    data=memo.encode("utf-8"),
-                    file_name=f"memo_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                    mime="text/plain"
-                )
+            st.markdown("**📝 Memo ejecutivo**")
+            if st.button("Generar memo", use_container_width=True):
+                with st.spinner("Redactando..."):
+                    memo = generar_resumen_ejecutivo(analisis, resultados, organismo)
+                st.download_button("⬇️ Descargar memo (.txt)", data=memo.encode("utf-8"),
+                    file_name=f"memo_{nombre_base}.txt", mime="text/plain",
+                    use_container_width=True)
