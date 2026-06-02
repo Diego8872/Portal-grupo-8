@@ -1,221 +1,358 @@
 """
-analyzer.py — Motor Claude para análisis de normativa argentina
+analyzer.py — Motor de análisis de normativa argentina
+Anthropic Sonnet como motor principal
+Groq llama-3.3-70b como fallback si Anthropic falla por saldo
+
+LÓGICA DE FALLBACK:
+- _es_error_saldo() detecta errores 402 / credit / balance
+- _llamar_modelo() → Sonnet → si saldo insuficiente → Groq
+- _llamar_modelo_chat() → Groq primero (chat/saludo) → fallback Anthropic
+- Web search: solo Anthropic (Groq no tiene tool nativo)
 """
 import os
 import json
 import re
 import anthropic
+from groq import Groq
 
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-MODEL = "claude-opus-4-6"
+client_claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+client_groq   = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
 
-# ── PERFILES DE EXPERTO POR ORGANISMO ────────────────────────────────────────
+MODEL_SONNET   = "claude-sonnet-4-6"
+MODEL_HAIKU    = "claude-haiku-4-5-20251001"
+MODEL_GROQ     = "llama-3.3-70b-versatile"
 
-EXPERTOS = {
-    "BCRA": """Sos un experto en regulación cambiaria y financiera argentina.
-Conocés en profundidad las comunicaciones del BCRA, el régimen de cambios,
-las normas de entidades financieras y la operatoria cambiaria.""",
+LIMITE_NORMA   = 9_500
+LIMITE_ANEXO   = 7_000
+LIMITE_TOTAL   = 28_000
 
-    "AFIP": """Sos un experto en derecho tributario y aduanero argentino.
-Conocés el sistema impositivo nacional, los regímenes de retención,
-percepciones, y las resoluciones generales de AFIP/ARCA.""",
+SISTEMA_EXPERTO = """Sos un experto senior en normativa argentina (derecho administrativo, comercio exterior, aduana, ARCA, AFIP, BCRA). Analizás resoluciones con criterio riguroso y práctico. Detectás ambigüedades, señalás riesgos, diferenciás lo que dice la norma de tu interpretación. No inventás información no explícita.
+IMPORTANTE: Tu interlocutor es un despachante de aduana o profesional del comercio exterior. NUNCA recomendés contratar asesores aduanales ni despachantes — ellos ya son los expertos. Dirigí las recomendaciones a la operatoria concreta, no a buscar ayuda profesional externa."""
 
-    "SIC": """Sos un experto en comercio exterior y regulación arancelaria argentina.
-Conocés la nomenclatura NCM, el régimen de importaciones y exportaciones,
-las resoluciones de la Secretaría de Industria y Comercio, y el marco
-del MEOSP 909/94 y normas conexas.""",
+FORMATO_SALIDA = """Análisis profesional para cliente de comercio exterior. Conciso y directo — el operador profundiza en el chat.
 
-    "MINERIA": """Sos un experto en el régimen de inversiones mineras argentino.
-Conocés en profundidad la Ley 24.196, el Decreto 2686/93, las resoluciones
-de la Secretaría de Minería (SPM/SM), el régimen de exención arancelaria
-del Art. 21 y los procedimientos de importación con beneficio minero.""",
+LÍMITE ESTRICTO: máx 120 palabras por sección. Sin relleno, sin repetir info entre secciones.
 
-    "BOLETIN": """Sos un experto en normativa legal y regulatoria argentina.
-Analizás resoluciones, decretos y disposiciones con criterio técnico-jurídico,
-identificando impacto práctico, condiciones y obligaciones.""",
-}
+Secciones FIJAS (siempre presentes):
+1. RESUMEN EJECUTIVO — qué regula, a quién afecta, qué cambia. Prosa, máx 5 oraciones.
+2. PUNTOS CLAVE — máx 6 bullets con obligaciones y plazos que realmente importan.
+3. ANÁLISIS OPERATIVO — máx 4 pasos de alto nivel con riesgo principal por paso.
+4. RIESGOS Y ZONAS GRISES — máx 3, con 🔴 alto / 🟡 medio.
 
+Sección CONDICIONAL (solo si la norma crea códigos, regímenes o mecanismos específicos):
+- SUBREGÍMENES / MECANISMOS — tabla: código | descripción | tributos. Insertá entre sección 2 y 3.
 
-def _limpiar_json(text: str) -> str:
-    return re.sub(r"```json|```", "", text).strip()
+Diferenciá norma (texto) de interpretación (inferencia). Sin checklist, sin dudas abiertas, sin recomendar asesores externos."""
 
 
-# ── 1. ANÁLISIS INICIAL ───────────────────────────────────────────────────────
+def _es_error_saldo(e: Exception) -> bool:
+    """Detecta si el error es por saldo insuficiente en Anthropic."""
+    msg = str(e).lower()
+    return "credit" in msg or "balance" in msg or "billing" in msg or "402" in msg
 
-def analizar_norma(texto_norma: str, organismo: str = "BOLETIN") -> dict:
-    perfil = EXPERTOS.get(organismo, EXPERTOS["BOLETIN"])
 
-    prompt = f"""{perfil}
+def _llamar_modelo(system: str, prompt: str, max_tokens: int = 4000) -> str:
+    """
+    Análisis: Sonnet primero → si falla por saldo → Groq → si no → Haiku.
+    """
+    # Intento 1: Anthropic Sonnet
+    try:
+        response = client_claude.messages.create(
+            model=MODEL_SONNET, max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.content[0].text.strip()
+    except Exception as e:
+        if not _es_error_saldo(e):
+            # Error distinto al saldo → probar Haiku antes de Groq
+            try:
+                response = client_claude.messages.create(
+                    model=MODEL_HAIKU, max_tokens=max_tokens,
+                    system=system,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return response.content[0].text.strip()
+            except Exception:
+                pass
 
-Analizá la siguiente normativa y respondé SOLO con JSON válido, sin texto adicional:
+    # Fallback: Groq
+    response = client_groq.chat.completions.create(
+        model=MODEL_GROQ, max_tokens=max_tokens,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    return response.choices[0].message.content.strip()
 
+
+def _llamar_modelo_chat(system: str, historial: list, max_tokens: int = 1000) -> str:
+    """
+    Chat/saludo: Groq primero (más rápido y gratis) → fallback Anthropic.
+    """
+    msgs = [{"role": m["role"], "content": m["content"]} for m in historial]
+    try:
+        response = client_groq.chat.completions.create(
+            model=MODEL_GROQ, max_tokens=max_tokens,
+            messages=[{"role": "system", "content": system}] + msgs
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        response = client_claude.messages.create(
+            model=MODEL_SONNET, max_tokens=max_tokens,
+            system=system, messages=historial
+        )
+        return response.content[0].text.strip()
+
+
+# ── DETECCIÓN DE ORGANISMO ────────────────────────────────────────────────────
+
+def detectar_organismo_con_ia(numero: str) -> dict:
+    prompt = f"""Sos un experto en normativa argentina. El operador ingresó: "{numero}"
+
+Determiná organismo y tipo. Respondé SOLO JSON:
 {{
-  "titulo": "título o identificación de la norma",
-  "organismo": "organismo emisor",
-  "fecha": "fecha de publicación si está disponible",
-  "resumen": "resumen ejecutivo en 3-4 oraciones claras",
-  "impacto_principal": "cambiario | arancelario | impositivo | financiero | minero | comercial | otro",
-  "afectados": ["quiénes se ven afectados"],
-  "puntos_clave": ["punto 1", "punto 2", "punto 3"],
-  "obligaciones": ["obligación 1", "obligación 2"],
-  "vigencia": "fecha de vigencia o 'desde publicación'",
-  "tiene_anexo_ncm": true,
-  "ncms_condiciones": {{"NCM": "condición o null"}}
+  "organismo": "BCRA|AFIP|SIC|MINERIA|ANMAT|SENASA|BOLETIN|DESCONOCIDO",
+  "tipo": "resolución|comunicación|disposición|decreto|circular|otro",
+  "numero_limpio": "número extraído",
+  "confianza": "alta|media|baja",
+  "razonamiento": "breve explicación"
 }}
 
-NORMATIVA:
-{texto_norma[:6000]}"""
+Ejemplos: "Com. A 8330"→BCRA, "RG 5424"→AFIP, "Res SIC 5/2026"→SIC, "Res 5838/2026"→BOLETIN, "SPM 89/19"→MINERIA, "Disp ANMAT 537"→ANMAT"""
 
-    response = client.messages.create(
-        model=MODEL, max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}]
-    )
     try:
-        return json.loads(_limpiar_json(response.content[0].text))
+        text = _llamar_modelo(
+            "Respondé SOLO con JSON válido, sin texto adicional.",
+            prompt, max_tokens=300
+        )
+        text = re.sub(r"```json|```", "", text).strip()
+        return json.loads(text)
     except Exception:
         return {
-            "resumen": response.content[0].text,
-            "puntos_clave": [], "obligaciones": [],
-            "afectados": [], "ncms_condiciones": {},
-            "tiene_anexo_ncm": False
+            "organismo": "BOLETIN", "tipo": "resolución",
+            "numero_limpio": numero, "confianza": "baja",
+            "razonamiento": "No determinado"
         }
 
 
-# ── 2. NIVEL DE CONFIANZA DEL ANEXO ──────────────────────────────────────────
+# ── ANEXOS ────────────────────────────────────────────────────────────────────
+
+def _detectar_y_bajar_anexos(texto: str) -> list:
+    import requests as _req
+    import pdfplumber
+    import io as _io
+    HEADERS = {"User-Agent": "Mozilla/5.0"}
+    anexos = []
+    urls = re.findall(r'https?://[^\s\'"<>\)]+\.pdf', texto, re.IGNORECASE)
+    nombres_raw = re.findall(r'ANEXO\s+([IVX\d]+)', texto, re.IGNORECASE)
+    for i, url in enumerate(urls[:3]):
+        nombre = f"ANEXO {nombres_raw[i]}" if i < len(nombres_raw) else f"ANEXO {i+1}"
+        try:
+            r = _req.get(url, headers=HEADERS, timeout=10)
+            if r.status_code == 200:
+                contenido = ""
+                with pdfplumber.open(_io.BytesIO(r.content)) as pdf:
+                    for page in pdf.pages:
+                        contenido += (page.extract_text() or "") + "\n"
+                if contenido.strip():
+                    anexos.append({"nombre": nombre, "url": url, "contenido": contenido.strip()})
+        except Exception:
+            pass
+    return anexos
+
+
+def _detectar_anexos_faltantes(texto: str, encontrados: list) -> list:
+    menciones = re.findall(r'ANEXO\s+([IVX\d]+)', texto, re.IGNORECASE)
+    faltantes = []
+    for m in menciones:
+        nombre = f"ANEXO {m.upper()}"
+        if not any(nombre in a["nombre"].upper() for a in encontrados):
+            if nombre not in faltantes:
+                faltantes.append(nombre)
+    return faltantes
+
+
+def _construir_bloque_anexos(anexos_encontrados: list, anexos_usuario: list = None) -> tuple[str, list, list]:
+    todos = list(anexos_encontrados)
+    if anexos_usuario:
+        for au in anexos_usuario:
+            nombre = au.get("nombre", "ANEXO SUBIDO")
+            if not any(nombre.upper() in a["nombre"].upper() for a in todos):
+                todos.append({"nombre": nombre, "contenido": au.get("contenido", ""), "url": None})
+
+    if not todos:
+        return "", [], []
+
+    bloques = []
+    chars_usados = 0
+    incluidos = []
+
+    for a in todos:
+        contenido = a["contenido"].strip()
+        if len(contenido) > LIMITE_ANEXO:
+            contenido = contenido[:LIMITE_ANEXO] + "\n[... contenido truncado por longitud ...]"
+        if chars_usados + len(contenido) > LIMITE_TOTAL:
+            break
+        bloques.append(f"--- {a['nombre']} ---\n{contenido}")
+        chars_usados += len(contenido)
+        incluidos.append(a["nombre"])
+
+    bloque_texto = "\n\nANEXOS DISPONIBLES:\n" + "\n\n".join(bloques) if bloques else ""
+    return bloque_texto, todos, incluidos
+
+
+# ── ANÁLISIS PRINCIPAL ────────────────────────────────────────────────────────
+
+def analizar_norma(texto_norma: str, organismo: str = "BOLETIN", anexos_usuario: list = None) -> dict:
+    anexos_descargados = _detectar_y_bajar_anexos(texto_norma)
+    bloque_anexos, todos_anexos, nombres_incluidos = _construir_bloque_anexos(
+        anexos_descargados, anexos_usuario or []
+    )
+    anexos_faltantes = _detectar_anexos_faltantes(texto_norma, todos_anexos)
+
+    chars_disponibles_norma = min(LIMITE_NORMA, LIMITE_TOTAL - len(bloque_anexos))
+    texto_norma_truncado = texto_norma[:chars_disponibles_norma]
+    if len(texto_norma) > chars_disponibles_norma:
+        texto_norma_truncado += "\n[... norma truncada por longitud total ...]"
+
+    aviso_cobertura = ""
+    if nombres_incluidos:
+        aviso_cobertura = f"\nNOTA: Se incluyen los siguientes Anexos completos: {', '.join(nombres_incluidos)}. Analizalos en detalle.\n"
+    if anexos_faltantes:
+        aviso_cobertura += f"AVISO: Los siguientes Anexos no están disponibles: {', '.join(anexos_faltantes)}. Indicalo en el análisis.\n"
+
+    system = SISTEMA_EXPERTO + "\n\n" + FORMATO_SALIDA
+
+    prompt = f"""Analizá esta normativa argentina. Sé conciso — máx 5 oraciones por sección.
+{aviso_cobertura}
+{bloque_anexos}
+
+NORMATIVA:
+{texto_norma_truncado}
+
+Al final incluí metadatos entre <meta>...</meta>:
+<meta>
+{{
+  "titulo": "identificación completa",
+  "organismo": "organismo emisor",
+  "fecha": "fecha si disponible",
+  "vigencia": "desde cuándo rige",
+  "impacto_principal": "cambiario|arancelario|impositivo|financiero|minero|comercial|sanitario|otro",
+  "afectados": ["lista"],
+  "tiene_anexo_ncm": false,
+  "ncms_condiciones": {{}}
+}}
+</meta>"""
+
+    texto_respuesta = _llamar_modelo(system, prompt, max_tokens=2500)
+
+    meta = {}
+    meta_match = re.search(r"<meta>(.*?)</meta>", texto_respuesta, re.DOTALL)
+    if meta_match:
+        try:
+            meta = json.loads(meta_match.group(1).strip())
+        except Exception:
+            meta = {}
+        texto_respuesta = texto_respuesta[:meta_match.start()].strip()
+
+    return {
+        "analisis_completo": texto_respuesta,
+        "titulo": meta.get("titulo", ""),
+        "organismo": meta.get("organismo", organismo),
+        "fecha": meta.get("fecha", ""),
+        "vigencia": meta.get("vigencia", ""),
+        "impacto_principal": meta.get("impacto_principal", ""),
+        "afectados": meta.get("afectados", []),
+        "tiene_anexo_ncm": meta.get("tiene_anexo_ncm", False),
+        "ncms_condiciones": meta.get("ncms_condiciones") or {},
+        "puntos_clave": [],
+        "obligaciones": [],
+        "anexos_encontrados": todos_anexos,
+        "anexos_faltantes": anexos_faltantes,
+        "_debug": {
+            "chars_norma_enviada": len(texto_norma_truncado),
+            "chars_anexos_enviados": len(bloque_anexos),
+            "anexos_incluidos": nombres_incluidos,
+        }
+    }
+
+
+# ── CONFIANZA ANEXO ───────────────────────────────────────────────────────────
 
 def evaluar_confianza_anexo(texto_norma: str, ncms_condiciones: dict) -> dict:
-    """
-    Evalúa qué tan completo es el Anexo extraído y retorna
-    nivel de confianza con mensaje para mostrar al usuario.
-    """
+    ncms_condiciones = ncms_condiciones or {}
     tiene_ncms = bool(ncms_condiciones)
     cantidad = len(ncms_condiciones)
-    menciona_anexo = any(p in texto_norma.upper() for p in [
-        "ANEXO I", "ANEXO 1", "IF-20", "FORMA PARTE INTEGRANTE"
-    ])
+    menciona_anexo = any(p in texto_norma.upper() for p in ["ANEXO I", "ANEXO 1", "IF-20", "FORMA PARTE INTEGRANTE"])
 
     if not tiene_ncms and menciona_anexo:
-        return {
-            "nivel": "sin_anexo",
-            "icono": "❌",
-            "mensaje": (
-                "**Análisis sin Anexo completo:** esta norma tiene un Anexo con NCMs/condiciones "
-                "que no pudo obtenerse desde las fuentes oficiales. El cruce se realizará por "
-                "conocimiento general de la nomenclatura arancelaria, lo que puede generar "
-                "resultados incompletos. **Para un análisis definitivo, subí el PDF del Anexo.**"
-            ),
-            "color": "error"
-        }
+        return {"nivel": "sin_anexo", "icono": "❌", "mensaje": "**Sin Anexo completo:** no pudo obtenerse desde fuentes oficiales. Subí el PDF del Anexo para análisis definitivo."}
     elif tiene_ncms and cantidad < 10:
-        return {
-            "nivel": "parcial",
-            "icono": "⚠️",
-            "mensaje": (
-                f"**Análisis parcial:** se extrajeron {cantidad} NCMs del Anexo. "
-                "Es posible que el listado no esté completo. Los artículos marcados "
-                "🟡 **A ANALIZAR** requieren verificación contra el Anexo oficial. "
-                "Si tenés el PDF del Anexo, subilo para mejorar la precisión."
-            ),
-            "color": "warning"
-        }
+        return {"nivel": "parcial", "icono": "⚠️", "mensaje": f"**Análisis parcial:** {cantidad} NCMs extraídos. Verificá los 🟡 A ANALIZAR contra el Anexo oficial."}
     elif tiene_ncms and cantidad >= 10:
-        return {
-            "nivel": "completo",
-            "icono": "✅",
-            "mensaje": (
-                f"**Análisis con confianza alta:** se extrajeron {cantidad} NCMs del Anexo. "
-                "El cruce es confiable. Revisá igualmente los marcados 🟡 A ANALIZAR."
-            ),
-            "color": "success"
-        }
+        return {"nivel": "completo", "icono": "✅", "mensaje": f"**Confianza alta:** {cantidad} NCMs extraídos correctamente."}
     else:
-        return {
-            "nivel": "general",
-            "icono": "ℹ️",
-            "mensaje": (
-                "**Análisis por conocimiento general:** esta norma no tiene Anexo de NCMs. "
-                "El cruce se realiza por análisis semántico de cada artículo vs el texto de la norma."
-            ),
-            "color": "info"
-        }
+        return {"nivel": "general", "icono": "ℹ️", "mensaje": "**Análisis semántico:** norma sin Anexo NCMs. Cruce por texto."}
 
 
-# ── 3. DIÁLOGO ────────────────────────────────────────────────────────────────
+# ── CHAT Y SALUDO ─────────────────────────────────────────────────────────────
+
+def saludo_inicial() -> str:
+    return ("Hola, soy tu asistente de normativa argentina. "
+            "Podés decirme el número de norma (*Res 5838/2026*, *Com. A 8330*, *RG 5424*...), "
+            "describir el tema, o contarme qué problema necesitás resolver. "
+            "También podés subir el documento o pegar el texto directamente.")
+
+
+def chat_inicial_respuesta(historial: list) -> str:
+    system = SISTEMA_EXPERTO + """
+
+Tu rol ahora: guiar al operador para encontrar y analizar la norma.
+- Si menciona un número, confirmá y decile que vas a buscarlo.
+- Si describe un problema, orientalo a qué norma corresponde.
+- Si es ambiguo, preguntá organismo o más contexto.
+- Máximo 4 oraciones. Directo y profesional."""
+    return _llamar_modelo_chat(system, historial, max_tokens=400)
+
+
+def responder_en_dialogo(texto_norma: str, analisis: dict, historial: list, organismo: str = "BOLETIN") -> str:
+    system = SISTEMA_EXPERTO + f"""
+
+Norma analizada: {analisis.get('titulo', '')}
+Análisis previo:
+{analisis.get('analisis_completo', '')[:3000]}
+
+Texto norma:
+{texto_norma[:3000]}
+
+Respondé con criterio experto. Si algo no está en la norma, indicalo claramente."""
+    return _llamar_modelo_chat(system, historial, max_tokens=1000)
+
 
 def generar_pregunta_output(analisis: dict, historial: list) -> str:
-    perfil_norma = f"""
-Norma: {analisis.get('titulo', '')}
-Impacto: {analisis.get('impacto_principal', '')}
-Afectados: {', '.join(analisis.get('afectados', []))}
-Tiene NCMs: {analisis.get('tiene_anexo_ncm', False)}
-"""
-    response = client.messages.create(
-        model=MODEL, max_tokens=300,
-        messages=historial + [{
-            "role": "user",
-            "content": f"""Sos un asistente experto en normativa argentina.
-Acabás de analizar esta norma: {perfil_norma}
-Hacé UNA pregunta concisa al operador para entender qué necesita como output.
-Ofrecé opciones concretas. Sé breve."""
-        }]
-    )
-    return response.content[0].text.strip()
+    titulo = analisis.get('titulo', 'la norma')
+    return (f"Analizé **{titulo}**. "
+            "¿Qué necesitás? Podés pedirme que profundice en algún punto, "
+            "cruzar con tu catálogo, generar un memo, o hacerme cualquier consulta.")
 
 
-def responder_en_dialogo(texto_norma: str, analisis: dict,
-                          historial: list, organismo: str = "BOLETIN") -> str:
-    perfil = EXPERTOS.get(organismo, EXPERTOS["BOLETIN"])
-    system = f"""{perfil}
-
-Contexto de la norma analizada:
-TÍTULO: {analisis.get('titulo', '')}
-RESUMEN: {analisis.get('resumen', '')}
-PUNTOS CLAVE: {'; '.join(analisis.get('puntos_clave', []))}
-OBLIGACIONES: {'; '.join(analisis.get('obligaciones', []))}
-
-TEXTO COMPLETO:
-{texto_norma[:5000]}
-
-Respondé las consultas del operador con criterio experto. Sé preciso y conciso."""
-
-    response = client.messages.create(
-        model=MODEL, max_tokens=800,
-        system=system,
-        messages=historial
-    )
-    return response.content[0].text.strip()
-
-
-# ── 4. DETECCIÓN DE COLUMNAS ──────────────────────────────────────────────────
+# ── CRUCE CON CATÁLOGO ────────────────────────────────────────────────────────
 
 def detectar_columnas(columnas: list, muestra: list) -> dict:
-    prompt = f"""Tenés un DataFrame con columnas: {columnas}
-Muestra de filas: {json.dumps(muestra[:4], ensure_ascii=False)}
-
-Identificá:
-1. Columna de código/artículo (Artículo, Código, SKU, Part Number...)
-2. Columna de NCM/posición arancelaria (Referencia, NCM, Posición...)
-3. Columna de descripción (Descripción, Nombre, Denominación...) — puede no existir
-
-Respondé SOLO JSON sin texto adicional:
-{{"col_articulo": "nombre_o_null", "col_ncm": "nombre_o_null", "col_descripcion": "nombre_o_null"}}"""
-
-    response = client.messages.create(
-        model=MODEL, max_tokens=150,
-        messages=[{"role": "user", "content": prompt}]
-    )
+    prompt = f"""Columnas: {columnas}
+Muestra: {json.dumps(muestra[:4], ensure_ascii=False)}
+Identificá artículo/código, NCM y descripción.
+SOLO JSON: {{"col_articulo": "nombre_o_null", "col_ncm": "nombre_o_null", "col_descripcion": "nombre_o_null"}}"""
     try:
-        return json.loads(_limpiar_json(response.content[0].text))
+        text = _llamar_modelo("Respondé SOLO con JSON válido.", prompt, max_tokens=150)
+        return json.loads(re.sub(r"```json|```", "", text).strip())
     except Exception:
         return {"col_articulo": None, "col_ncm": None, "col_descripcion": None}
 
 
-# ── 5. CLASIFICACIÓN FILA POR FILA ────────────────────────────────────────────
-
-def clasificar_articulos(df, cols: dict, ncms_condiciones: dict,
-                          texto_norma: str, organismo: str,
-                          progress_cb=None) -> list:
-    perfil = EXPERTOS.get(organismo, EXPERTOS["BOLETIN"])
+def clasificar_articulos(df, cols: dict, ncms_condiciones: dict, texto_norma: str, organismo: str, progress_cb=None) -> list:
     resultados = []
     total = len(df)
     contexto_ncm = json.dumps(ncms_condiciones, ensure_ascii=False) if ncms_condiciones else ""
@@ -224,113 +361,46 @@ def clasificar_articulos(df, cols: dict, ncms_condiciones: dict,
         articulo = str(row.get(cols.get("col_articulo", ""), "")).strip()
         ncm_art  = str(row.get(cols.get("col_ncm", ""), "")).strip()
         desc     = str(row.get(cols.get("col_descripcion", ""), "")).strip()
-
-        # Verificar si el NCM está en el Anexo (primeros 8 dígitos)
         ncm_limpio = re.sub(r"[^0-9]", "", ncm_art)[:8]
-        ncm_en_anexo = any(
-            re.sub(r"[^0-9]", "", k)[:8] == ncm_limpio
-            for k in ncms_condiciones.keys()
-        ) if ncms_condiciones else None  # None = no tenemos Anexo
+        ncm_en_anexo = any(re.sub(r"[^0-9]", "", k)[:8] == ncm_limpio for k in ncms_condiciones.keys()) if ncms_condiciones else None
 
-        # Si tenemos Anexo y el NCM no está → NO ENCUADRA directo
         if ncms_condiciones and ncm_en_anexo is False:
-            resultados.append({
-                "articulo": articulo, "ncm": ncm_art, "descripcion": desc,
-                "estado": "NO ENCUADRA",
-                "fundamento": "NCM no figura en el Anexo de la resolución",
-                "color": "🔴"
-            })
+            resultados.append({"articulo": articulo, "ncm": ncm_art, "descripcion": desc, "estado": "NO ENCUADRA", "fundamento": "NCM no figura en el Anexo", "color": "🔴"})
             if progress_cb: progress_cb((i + 1) / total)
             continue
 
-        # Obtener condición para ese NCM
-        condicion = next(
-            (v for k, v in ncms_condiciones.items()
-             if re.sub(r"[^0-9]", "", k)[:8] == ncm_limpio),
-            None
-        ) if ncms_condiciones else "No disponible — analizar por texto de norma"
+        condicion = next((v for k, v in ncms_condiciones.items() if re.sub(r"[^0-9]", "", k)[:8] == ncm_limpio), None) if ncms_condiciones else "Evaluar por texto"
 
-        prompt = f"""{perfil}
+        prompt = f"""{SISTEMA_EXPERTO}
 
-{"NCMs y condiciones del Anexo: " + contexto_ncm if contexto_ncm else "Texto de la norma (sin Anexo extraído): " + texto_norma[:2000]}
-
-Artículo a evaluar:
-- Código: {articulo}
-- NCM: {ncm_art}
-- Descripción: {desc}
-- Condición del Anexo para esta NCM: {condicion or 'Sin condición adicional'}
-
-¿Este artículo encuadra en la norma para acceder al beneficio?
-
-Respondé SOLO JSON:
-{{"estado": "ENCUADRA|NO ENCUADRA|A ANALIZAR", "fundamento": "explicación en 1 oración"}}"""
+{"NCMs Anexo: " + contexto_ncm if contexto_ncm else "Texto norma: " + texto_norma[:2000]}
+Artículo: {articulo} | NCM: {ncm_art} | Desc: {desc} | Condición: {condicion or 'Sin condición'}
+¿Encuadra? SOLO JSON: {{"estado": "ENCUADRA|NO ENCUADRA|A ANALIZAR", "fundamento": "1 oración"}}"""
 
         try:
-            response = client.messages.create(
-                model=MODEL, max_tokens=150,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            resultado = json.loads(_limpiar_json(response.content[0].text))
+            text = _llamar_modelo("Respondé SOLO con JSON válido.", prompt, max_tokens=150)
+            resultado = json.loads(re.sub(r"```json|```", "", text).strip())
             estado = resultado.get("estado", "A ANALIZAR")
             fundamento = resultado.get("fundamento", "")
         except Exception:
             estado = "A ANALIZAR"
-            fundamento = "Error en clasificación — revisar manualmente"
+            fundamento = "Error — revisar manualmente"
 
         color = {"ENCUADRA": "🟢", "NO ENCUADRA": "🔴", "A ANALIZAR": "🟡"}.get(estado, "🟡")
-        resultados.append({
-            "articulo": articulo, "ncm": ncm_art, "descripcion": desc,
-            "estado": estado, "fundamento": fundamento, "color": color
-        })
-
+        resultados.append({"articulo": articulo, "ncm": ncm_art, "descripcion": desc, "estado": estado, "fundamento": fundamento, "color": color})
         if progress_cb: progress_cb((i + 1) / total)
 
     return resultados
 
 
-# ── 6. MEMO EJECUTIVO ─────────────────────────────────────────────────────────
-
-def generar_resumen_ejecutivo(analisis: dict, resultados: list = None,
-                               organismo: str = "BOLETIN") -> str:
-    perfil = EXPERTOS.get(organismo, EXPERTOS["BOLETIN"])
-
+def generar_resumen_ejecutivo(analisis: dict, resultados: list = None, organismo: str = "BOLETIN") -> str:
     stats = ""
     if resultados:
         enc = sum(1 for r in resultados if r["estado"] == "ENCUADRA")
         no  = sum(1 for r in resultados if r["estado"] == "NO ENCUADRA")
         aal = sum(1 for r in resultados if r["estado"] == "A ANALIZAR")
-        detalle = "\n".join(
-            f"- {r['articulo']} ({r['ncm']}): {r['estado']} — {r['fundamento']}"
-            for r in resultados[:25]
-        )
-        stats = f"""
-Resultados del cruce de catálogo:
-- Total analizados: {len(resultados)}
-- Encuadran: {enc}
-- No encuadran: {no}
-- A analizar: {aal}
+        detalle = "\n".join(f"- {r['articulo']} ({r['ncm']}): {r['estado']} — {r['fundamento']}" for r in resultados[:25])
+        stats = f"\nCruce: {len(resultados)} artículos | Encuadran: {enc} | No: {no} | A analizar: {aal}\n{detalle}"
 
-Detalle:
-{detalle}
-"""
-
-    prompt = f"""{perfil}
-
-Redactá un memo ejecutivo profesional basado en este análisis normativo:
-
-NORMA: {analisis.get('titulo', '')}
-RESUMEN: {analisis.get('resumen', '')}
-PUNTOS CLAVE: {'; '.join(analisis.get('puntos_clave', []))}
-OBLIGACIONES: {'; '.join(analisis.get('obligaciones', []))}
-VIGENCIA: {analisis.get('vigencia', '')}
-AFECTADOS: {', '.join(analisis.get('afectados', []))}
-{stats}
-
-El memo debe incluir: encabezado formal, marco normativo, análisis técnico,
-conclusiones y recomendaciones. Estilo profesional y lenguaje técnico preciso."""
-
-    response = client.messages.create(
-        model=MODEL, max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.content[0].text.strip()
+    prompt = f"""Redactá memo ejecutivo profesional:\nNORMA: {analisis.get('titulo','')}\n{analisis.get('analisis_completo','')[:3000]}\n{stats}\nIncluir: encabezado, marco normativo, análisis técnico, conclusiones y recomendaciones."""
+    return _llamar_modelo(SISTEMA_EXPERTO, prompt, max_tokens=1500)
