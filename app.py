@@ -186,7 +186,7 @@ projects = [
         "icon": "🔍",
         "name": "Consulta Descripciones CAT",
         "tag": "Importaciones",
-        "desc": "Consultá descripciones en español de repuestos Caterpillar. Ingresá códigos manualmente o subí un Excel — con o sin guión. Base de datos de 1.7 millones de partes.",
+        "desc": "Consultá descripciones en español de repuestos Caterpillar. Ingresá códigos manualmente o subí un Excel. Base de datos de 1.7 millones de partes.",
         "page": "pages/16_Consulta_Descripciones_CAT.py"
     },
 ]
