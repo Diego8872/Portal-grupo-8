@@ -182,10 +182,17 @@ projects = [
         "desc": "Consulta masiva de descripciones de repuestos en parts.cat.com. Subí tu listado de códigos, generá los scripts por tanda y consolidá los resultados en un Excel.",
         "page": "pages/15_Consulta_Catalogo_CAT.py"
     },
+    {
+        "icon": "🔍",
+        "name": "Consulta Descripciones CAT",
+        "tag": "Importaciones",
+        "desc": "Consultá descripciones en español de repuestos Caterpillar. Ingresá códigos manualmente o subí un Excel — con o sin guión. Base de datos de 1.7 millones de partes.",
+        "page": "pages/16_Consulta_Descripciones_CAT.py"
+    },
 ]
 
 coming_soon = [
-    {"icon": "🔍", "name": "Corrector Inal Coca"},
+    {"icon": "🍹", "name": "Corrector Inal Coca"},
 ]
 
 all_items = [("active", p) for p in projects] + [("soon", s) for s in coming_soon]
