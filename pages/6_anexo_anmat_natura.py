@@ -80,6 +80,13 @@ def cargar_anmat(file_bytes):
         buf.seek(0)
         df = pd.read_excel(buf, sheet_name='HISTORICO', header=0)
     df['CM'] = df['CM'].astype(str).str.strip()
+    if 'NOMBRE' not in df.columns and 'DESCRIPCION' in df.columns:
+        df = df.rename(columns={'DESCRIPCION': 'NOMBRE'})
+    elif 'NOMBRE' not in df.columns:
+        for col in df.columns:
+            if col.upper() in ('DESCRIPCION', 'DESCRIPTION', 'NOMBRE DEL PRODUCTO', 'PRODUCTO'):
+                df = df.rename(columns={col: 'NOMBRE'})
+                break
     return df
 
 @st.cache_data
@@ -595,7 +602,21 @@ def procesar_pl(pl, df_anmat, df_avon, df_prox, df_fab, df_ncm):
 
     for _, pl_row in pl.iterrows():
         mat_code = str(pl_row[1]).strip()
-        cantidad = pl_row[2]
+        if not re.match(r'^\d{5,}$|^\d+-\d{4,}$', mat_code):
+            continue
+        cantidad_raw = pl_row[2]
+        if pd.isna(cantidad_raw):
+            cantidad = ''
+        else:
+            cantidad_str = str(cantidad_raw).strip()
+            m_cant = re.match(r'^([\d,\.]+)', cantidad_str.replace(' ', ''))
+            if m_cant:
+                try:
+                    cantidad = int(float(m_cant.group(1).replace(',', '')))
+                except:
+                    cantidad = cantidad_str
+            else:
+                cantidad = cantidad_str
         descripcion_pl = str(pl_row[3]).strip() if pd.notna(pl_row[3]) else ''
         lot_product = str(pl_row[5]).strip() if pd.notna(pl_row[5]) else ''
         expire_date = str(pl_row[6]).strip() if pd.notna(pl_row[6]) else ''
