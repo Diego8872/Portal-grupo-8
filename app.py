@@ -115,7 +115,7 @@ projects = [
         "icon": "📜",
         "name": "Template Unificado con CE",
         "tag": "Clasificación",
-        "desc": "Asignación automática de Certificados Mineros (CE) al Template Unificado. Cruza PDFs de CE y RE contra el unificado para identificar qué CE corresponde a cada ítem.",
+        "desc": "Asignación automática de Certificados Mineros al Template Unificado. Cruza PDFs de CE y RE para identificar el número de CE de cada Item.",
         "page": "pages/17_template_unificado_ce.py"
     },
     {
