@@ -112,60 +112,67 @@ projects = [
         "page": "pages/5_template_cm.py"
     },
     {
+        "icon": "📜",
+        "name": "Template Unificado con CE",
+        "tag": "Clasificación",
+        "desc": "Asignación automática de Certificados Mineros (CE) al Template Unificado. Cruza PDFs de CE y RE contra el unificado para identificar qué CE corresponde a cada ítem.",
+        "page": "pages/6_template_unificado_ce.py"
+    },
+    {
         "icon": "📋",
         "name": "Generador ANMAT Natura",
         "tag": "Importaciones",
         "desc": "Generación automática del Anexo de Productos ANMAT para operaciones de importación Natura y Avon. Cruza PL, registros ANMAT, NCM y fabricantes.",
-        "page": "pages/6_anexo_anmat_natura.py"
+        "page": "pages/7_anexo_anmat_natura.py"
     },
     {
         "icon": "📄",
         "name": "DJIM Finning POWER",
         "tag": "Importaciones",
         "desc": "Generación automática de DJIM (Excel) y DJIM Electrónica (TXT) para importaciones de motores y bloques Finning Power.",
-        "page": "pages/7_DJIM_Finning_POWER.py"
+        "page": "pages/8_DJIM_Finning_POWER.py"
     },
     {
         "icon": "🏛️",
         "name": "RIGI — Normativa y Consultas",
         "tag": "Normativa",
         "desc": "Consultá normativa, decretos y análisis sobre el Régimen de Incentivo para Grandes Inversiones (RIGI) en base a fuentes oficiales verificadas.",
-        "page": "pages/8_RIGI_Normativa_Consultas.py"
+        "page": "pages/9_RIGI_Normativa_Consultas.py"
     },
     {
         "icon": "🍽️",
         "name": "INAL — Normativa y Consultas",
         "tag": "Normativa",
         "desc": "Consultá normativa y procedimientos del Instituto Nacional de Alimentos (INAL) para importación de productos alimenticios. Fuentes oficiales verificadas.",
-        "page": "pages/9_INAL_Normativa_Consultas.py"
+        "page": "pages/10_INAL_Normativa_Consultas.py"
     },
     {
         "icon": "🧴",
         "name": "ANMAT — Cosméticos y Perfumes",
         "tag": "Normativa",
         "desc": "Consultá normativa y procedimientos de ANMAT para importación de cosméticos y perfumes. Fuentes oficiales verificadas.",
-        "page": "pages/10_ANMAT_Cosmeticos_Perfumes.py"
+        "page": "pages/11_ANMAT_Cosmeticos_Perfumes.py"
     },
     {
         "icon": "⛏️",
         "name": "Ley Minera — Normativa y Consultas",
         "tag": "Normativa",
         "desc": "Consultá normativa sobre el Régimen de Inversiones Mineras (Ley 24.196), prestadores de servicios, comercio exterior minero y RIGI (Ley 27.742).",
-        "page": "pages/11_Ley_Minera_Normativa_Consultas.py"
+        "page": "pages/12_Ley_Minera_Normativa_Consultas.py"
     },
     {
         "icon": "📦",
         "name": "Construcción de Lote",
         "tag": "Importaciones",
         "desc": "Generación automática de lotes CME y SIDOM desde facturas PDF. Múltiples proveedores, con lógica de marca, NCM y origen según cliente.",
-        "page": "pages/12_Construccion_Lote.py"
+        "page": "pages/13_Construccion_Lote.py"
     },
     {
         "icon": "⚖️",
         "name": "Analizador de Normativa",
         "tag": "Normativa",
         "desc": "Consultá, analizá y cruzá cualquier normativa argentina — BCRA, AFIP, DGI, Boletín Oficial y más. Buscá por número o subí el documento.",
-        "page": "pages/13_Analizador_Normativo.py",
+        "page": "pages/14_Analizador_Normativo.py",
         "review": True
     },
     {
@@ -173,21 +180,21 @@ projects = [
         "name": "UE-Mercosur — Normativa",
         "tag": "Normativa",
         "desc": "Consultá normativa, impactos arancelarios y análisis del Acuerdo UE-Mercosur. Incluye cronograma de desgravación arancelaria. Fuentes verificadas.",
-        "page": "pages/14_Acuerdo_EU_Mercosur.py"
+        "page": "pages/15_Acuerdo_EU_Mercosur.py"
     },
     {
         "icon": "🔧",
         "name": "Consulta Catálogo CAT",
         "tag": "Importaciones",
         "desc": "Consulta masiva de descripciones de repuestos en parts.cat.com. Subí tu listado de códigos, generá los scripts por tanda y consolidá los resultados en un Excel.",
-        "page": "pages/15_Consulta_Catalogo_CAT.py"
+        "page": "pages/16_Consulta_Catalogo_CAT.py"
     },
     {
         "icon": "🔍",
         "name": "Consulta Descripciones CAT",
         "tag": "Importaciones",
         "desc": "Consultá descripciones en español de repuestos Caterpillar. Ingresá códigos manualmente o subí un Excel. Base de datos de 1.7 millones de partes.",
-        "page": "pages/16_Consulta_Descripciones_CAT.py"
+        "page": "pages/17_Consulta_Descripciones_CAT.py"
     },
 ]
 
