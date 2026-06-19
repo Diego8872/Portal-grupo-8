@@ -78,7 +78,7 @@ def exportar_excel(df):
     FD = Font(name='Calibri', size=11)
     SIN_COLOR = {'ID','InscRUMP','ActiServ','NroInsc','RazonSocial','CUIT','ImpDirecta','CondMerca',
                  'SimiSira','ProyectoMinero','Radicacion','ClasificacionDeArticulo','TipoDeFactura',
-                 'Observaciones','ITEM_DESPACHO','NRO_CE'}
+                 'Observaciones','ITEM_DESPACHO','ITEM','D:CERTSM','V:AUTOLIQCONTRIMP'}
     for ci, col in enumerate(df.columns, 1):
         cell = ws.cell(row=1, column=ci, value=col)
         cell.font = FH; cell.alignment = Alignment(horizontal='left', vertical='center')
@@ -122,9 +122,20 @@ def encontrar_subconjunto_fob(candidatos_df, fob_objetivo, tolerancia=1.0):
 
 def asignar_ce(df, ce_info):
     df = df.copy()
-    if 'NRO_CE' not in df.columns:
-        idx = df.columns.tolist().index('ITEM_DESPACHO') + 1
-        df.insert(idx, 'NRO_CE', '')
+    
+    # Detectar nombre de la columna de referencia al item del despacho
+    col_item = 'ITEM_DESPACHO' if 'ITEM_DESPACHO' in df.columns else (
+        'ITEM' if 'ITEM' in df.columns else df.columns[-1]
+    )
+    
+    # Renombrar siempre a ITEM en la salida
+    if col_item != 'ITEM':
+        df = df.rename(columns={col_item: 'ITEM'})
+        col_item = 'ITEM'
+    
+    if 'D:CERTSM' not in df.columns:
+        idx = df.columns.tolist().index(col_item) + 1
+        df.insert(idx, 'D:CERTSM', '')
 
     mask_aplica = df['Observaciones'].isna() | (df['Observaciones'].str.strip() == '')
 
@@ -141,7 +152,7 @@ def asignar_ce(df, ce_info):
         fob_ce = info['fob']
 
         # Filas disponibles con esos códigos
-        mask_disp = mask_aplica & (df['NRO_CE'] == '')
+        mask_disp = mask_aplica & (df['D:CERTSM'] == '')
         mask_codigos = df['CodigoParte'].isin(codigos_ce)
         # Filtrar por factura si está disponible
         if info.get('factura'):
@@ -158,9 +169,15 @@ def asignar_ce(df, ce_info):
         diff = abs(fob_calc - fob_ce)
         estado = 'ok' if diff <= 1 else 'warn'
 
-        df.loc[indices_match, 'NRO_CE'] = nro_ce
+        df.loc[indices_match, 'D:CERTSM'] = nro_ce
         resultados.append({'ce': nro_ce, 're': info['re'], 'estado': estado,
                            'fob_ce': fob_ce, 'fob_calc': fob_calc, 'n_items': len(indices_match)})
+
+    # Agregar columna V:AUTOLIQCONTRIMP — SI si tiene CE asignado, vacío si no
+    if 'V:AUTOLIQCONTRIMP' not in df.columns:
+        idx_certsm = df.columns.tolist().index('D:CERTSM')
+        df.insert(idx_certsm + 1, 'V:AUTOLIQCONTRIMP', '')
+    df['V:AUTOLIQCONTRIMP'] = df['D:CERTSM'].apply(lambda v: 'SI' if v and str(v).strip() != '' else '')
 
     return df, resultados, alertas_dup
 
@@ -248,9 +265,9 @@ if st.session_state.get('procesado'):
         </div>
         """, unsafe_allow_html=True)
 
-    sin_ce = df[(df['NRO_CE'] == '') & (df['Observaciones'].isna() | (df['Observaciones'].str.strip() == ''))]
+    sin_ce = df[(df['D:CERTSM'] == '') & (df['Observaciones'].isna() | (df['Observaciones'].str.strip() == ''))]
     total_sin_cm = (df['Observaciones'].str.strip() == 'SIN CM').sum() if 'Observaciones' in df.columns else 0
-    total_asignados = (df['NRO_CE'] != '').sum()
+    total_asignados = (df['D:CERTSM'] != '').sum()
 
     if not sin_ce.empty:
         st.markdown(f'<br><span class="badge-warn">⚠️ {len(sin_ce)} ítems sin CE asignado</span>', unsafe_allow_html=True)
