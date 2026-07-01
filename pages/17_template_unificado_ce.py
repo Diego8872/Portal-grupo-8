@@ -56,16 +56,9 @@ def extraer_datos_re(texto):
     fob_str = fob_m.group(1) if fob_m else '0'
     fob = float(fob_str.replace('.', '').replace(',', '.'))
 
-    # Extraer número de factura
     factura_m = re.search(r'Número de Factura:\s*([A-Z0-9]+)', texto)
     factura = factura_m.group(1).strip() if factura_m else None
 
-    # Cada renglón de mercadería trae: Cantidad ... Valor total del ítem ...
-    # Código de parte. Los capturamos como renglones INDIVIDUALES (no agregados
-    # por código) porque cuando un mismo código se reparte en varios renglones
-    # de cantidades distintas dentro del mismo RE, o el mismo código aparece en
-    # más de un CE, lo único que distingue una línea del Excel de otra es la
-    # combinación puntual (cantidad, FOB) de ESE renglón.
     renglones_raw = re.findall(
         r'Cantidad:\s*([\d,\.]+).*?'
         r'Valor total de los art[íi]culo/item \(FOB en d[óo]lares estadounidenses\):\s*([\d,\.]+).*?'
@@ -123,24 +116,14 @@ def exportar_excel(df):
 
 def preasignar_codigos_compartidos(df, ce_info):
     """
-    Cuando un mismo código de parte aparece en más de un CE (compitiendo por
-    las mismas líneas del Excel), la búsqueda de subconjunto por FOB total del
-    CE es ciega a qué línea pertenece a qué CE y puede asignar mal las líneas
-    (ej.: invertir cuál línea le toca a cuál CE cuando el FOB total del código
-    es igual en ambos certificados).
+    Resuelve códigos compartidos entre CEs a nivel de renglón individual.
 
-    Esta función resuelve ESOS códigos compartidos primero, a nivel de
-    RENGLÓN INDIVIDUAL: cada renglón declarado en un RE trae su propia
-    (Cantidad, FOB del renglón), y eso es lo que se intenta matchear 1 a 1
-    contra cada línea disponible del Excel para ese código — en vez de
-    repartir por cantidad u FOB agregados, que pueden empatar entre CEs.
-
-    Devuelve el df con D:CERTSM ya completado para las líneas resueltas así,
-    y la lista de avisos (para mostrar si algo no pudo resolverse sin ambigüedad).
+    FIX 1: filtra por la factura del CE específico (no la unión de facturas).
+    FIX 2: filtra por ValorFOBTotal de la línea ≈ FOB del CE, para discriminar
+            líneas completamente idénticas dentro de la misma factura.
     """
     avisos = []
 
-    # 1) Detectar qué códigos de parte aparecen en más de un CE
     codigo_a_ces = {}
     for nro_ce, info in ce_info.items():
         for cod in set(info['codigos']):
@@ -155,13 +138,8 @@ def preasignar_codigos_compartidos(df, ce_info):
     for cod in codigos_compartidos:
         ces_que_compiten = codigo_a_ces[cod]
 
-        # Filas del Excel con este código, disponibles
+        # Pool sin pre-filtro de factura: cada CE filtra por la suya en el loop
         mask_disp = mask_aplica & (df['D:CERTSM'] == '') & (df['CodigoParte'] == cod)
-        # Si hay info de factura en algún CE competidor, filtrar también por factura
-        facturas = {ce_info[nc].get('factura') for nc in ces_que_compiten if ce_info[nc].get('factura')}
-        if len(facturas) == 1:
-            mask_disp = mask_disp & (df['NumeroDeFactura'] == next(iter(facturas)))
-
         candidatas = df[mask_disp].copy()
         if candidatas.empty:
             continue
@@ -169,33 +147,36 @@ def preasignar_codigos_compartidos(df, ce_info):
         candidatas['_cant'] = candidatas['Cantidad'].apply(safe_float) if 'Cantidad' in candidatas.columns else 1.0
         candidatas['_fob'] = candidatas['ValorTotalItem'].apply(safe_float)
 
-        # Pool de líneas físicas del Excel todavía sin asignar, para este código
         pool = {i: (candidatas.at[i, '_cant'], candidatas.at[i, '_fob']) for i in candidatas.index}
 
-        # Armar la lista de renglones que cada CE declaró para este código puntual
-        # (cada renglón = una unidad de matching, con su propia cantidad y FOB)
         renglones_por_ce = {}
         for nro_ce in ces_que_compiten:
             renglones_por_ce[nro_ce] = [
                 r for r in ce_info[nro_ce].get('renglones', []) if r['codigo'] == cod
             ]
 
-        # PASO A: match exacto renglón-a-línea por (cantidad, fob) — el caso ideal,
-        # sin ambigüedad, porque cada renglón declarado coincide 1:1 con una línea física.
+        # PASO A: match exacto renglón-a-línea filtrando por factura Y ValorFOBTotal del CE
         for nro_ce, renglones in renglones_por_ce.items():
+            factura_ce = ce_info[nro_ce].get('factura')
+            fob_ce = ce_info[nro_ce]['fob']
             for rg in renglones:
                 candidatos_idx = [
                     i for i, (c, f) in pool.items()
-                    if abs(c - rg['cantidad']) < 0.001 and abs(f - rg['fob']) <= 1
+                    if abs(c - rg['cantidad']) < 0.001
+                    and abs(f - rg['fob']) <= 1
+                    and (not factura_ce or df.at[i, 'NumeroDeFactura'] == factura_ce)
+                    and (
+                        'ValorFOBTotal' not in df.columns
+                        or pd.isna(df.at[i, 'ValorFOBTotal'])
+                        or abs(safe_float(df.at[i, 'ValorFOBTotal']) - fob_ce) <= 1
+                    )
                 ]
-                if len(candidatos_idx) == 1:
+                if len(candidatos_idx) >= 1:
                     idx = candidatos_idx[0]
                     df.loc[idx, 'D:CERTSM'] = nro_ce
                     del pool[idx]
 
-        # PASO B: lo que no pudo resolverse 1:1 sin ambigüedad por (cantidad, fob)
-        # exacta, se reporta como aviso en vez de adivinar — más vale dejarlo para
-        # revisión manual que asignar mal.
+        # PASO B: reportar lo que no pudo resolverse
         for nro_ce, renglones in renglones_por_ce.items():
             for rg in renglones:
                 ya_asignado = (
@@ -214,60 +195,44 @@ def preasignar_codigos_compartidos(df, ce_info):
 
 
 def encontrar_subconjunto_fob(candidatos_df, fob_objetivo, tolerancia=1.0):
-    """
-    Encuentra el subconjunto de filas cuya suma de FOB coincide con fob_objetivo.
-    Primero intenta con todas las filas. Si no coincide, prueba subconjuntos.
-    """
     fobs = [safe_float(v) for v in candidatos_df['ValorTotalItem']]
     indices = list(candidatos_df.index)
-    
-    # Caso 1: todas las filas coinciden
+
     suma_total = round(sum(fobs), 2)
     if abs(suma_total - fob_objetivo) <= tolerancia:
         return indices, suma_total
-    
-    # Caso 2: buscar subconjunto por tamaño (de mayor a menor para ser eficiente)
-    # Solo intentar si hay menos de 40 filas (evitar explosión combinatoria)
+
     if len(indices) <= 40:
         for size in range(len(indices)-1, 0, -1):
             for combo_idx in combinations(range(len(indices)), size):
                 suma = round(sum(fobs[i] for i in combo_idx), 2)
                 if abs(suma - fob_objetivo) <= tolerancia:
                     return [indices[i] for i in combo_idx], suma
-    
-    # No encontró subconjunto exacto
+
     return indices, suma_total
 
 def asignar_ce(df, ce_info):
     df = df.copy()
-    
-    # Detectar nombre de la columna de referencia al item del despacho
+
     col_item = 'ITEM_DESPACHO' if 'ITEM_DESPACHO' in df.columns else (
         'ITEM' if 'ITEM' in df.columns else df.columns[-1]
     )
-    
-    # Renombrar siempre a ITEM en la salida
     if col_item != 'ITEM':
         df = df.rename(columns={col_item: 'ITEM'})
         col_item = 'ITEM'
-    
+
     if 'D:CERTSM' not in df.columns:
         idx = df.columns.tolist().index(col_item) + 1
         df.insert(idx, 'D:CERTSM', '')
 
     mask_aplica = df['Observaciones'].isna() | (df['Observaciones'].str.strip() == '')
 
-    # Detectar CEs con mismos códigos y FOB (ambigüedad)
     firma_re = {}
     for nro_ce, info in ce_info.items():
         firma = (frozenset(info['codigos']), round(info['fob'], 2))
         firma_re.setdefault(firma, []).append(nro_ce)
     alertas_dup = [{'ces': v, 'fob': k[1]} for k, v in firma_re.items() if len(v) > 1]
 
-    # PASO 1: resolver primero los códigos de parte que compiten entre varios CE,
-    # matcheando renglón por renglón (cantidad+FOB declarados en cada RE) contra
-    # las líneas disponibles del Excel. Evita que el matching por FOB total le
-    # robe líneas a un CE y se las asigne a otro cuando comparten código.
     df, avisos_reparto = preasignar_codigos_compartidos(df, ce_info)
 
     resultados = []
@@ -275,23 +240,18 @@ def asignar_ce(df, ce_info):
         codigos_ce = info['codigos']
         fob_ce = info['fob']
 
-        # Filas disponibles con esos códigos (las que ya quedaron asignadas en el
-        # PASO 1 ya no están "disponibles" por el filtro de D:CERTSM == '')
         mask_disp = mask_aplica & (df['D:CERTSM'] == '')
         mask_codigos = df['CodigoParte'].isin(codigos_ce)
-        # Filtrar por factura si está disponible
         if info.get('factura'):
             mask_codigos = mask_codigos & (df['NumeroDeFactura'] == info['factura'])
         candidatos = df[mask_disp & mask_codigos].copy()
 
-        # Líneas que este CE ya tiene asignadas desde el PASO 1 (códigos compartidos)
         ya_asignadas = df[(df['D:CERTSM'] == nro_ce)]
         fob_ya_asignado = sum(safe_float(v) for v in ya_asignadas['ValorTotalItem']) if not ya_asignadas.empty else 0.0
         fob_restante = round(fob_ce - fob_ya_asignado, 2)
 
         if candidatos.empty:
             if not ya_asignadas.empty:
-                # Todo lo que le correspondía ya se resolvió por el PASO 1
                 diff = abs(fob_ya_asignado - fob_ce)
                 estado = 'ok' if diff <= 1 else 'warn'
                 resultados.append({'ce': nro_ce, 're': info['re'], 'estado': estado,
@@ -301,7 +261,6 @@ def asignar_ce(df, ce_info):
                                    'fob_ce': fob_ce, 'fob_calc': 0, 'n_items': 0})
             continue
 
-        # Encontrar subconjunto cuya suma de FOB coincida con lo que falta cubrir
         indices_match, fob_calc_parcial = encontrar_subconjunto_fob(candidatos, fob_restante)
         fob_calc = round(fob_ya_asignado + fob_calc_parcial, 2)
         diff = abs(fob_calc - fob_ce)
@@ -312,7 +271,6 @@ def asignar_ce(df, ce_info):
         resultados.append({'ce': nro_ce, 're': info['re'], 'estado': estado,
                            'fob_ce': fob_ce, 'fob_calc': fob_calc, 'n_items': n_items_total})
 
-    # Agregar columna V:AUTOLIQCONTRIMP — SI si tiene CE asignado, vacío si no
     if 'V:AUTOLIQCONTRIMP' not in df.columns:
         idx_certsm = df.columns.tolist().index('D:CERTSM')
         df.insert(idx_certsm + 1, 'V:AUTOLIQCONTRIMP', '')
@@ -365,7 +323,7 @@ if st.button("🔍 ANALIZAR Y ASIGNAR CE", disabled=not (f_unificado and f_pdfs 
         ce_info = {}
         for nro_ce, nro_re in ces.items():
             if nro_re in res:
-                ce_info[nro_ce] = {'re': nro_re, 'fob': res[nro_re]['fob'], 
+                ce_info[nro_ce] = {'re': nro_re, 'fob': res[nro_re]['fob'],
                                    'codigos': res[nro_re]['codigos'],
                                    'factura': res[nro_re]['factura'],
                                    'cantidad_por_codigo': res[nro_re]['cantidad_por_codigo'],
