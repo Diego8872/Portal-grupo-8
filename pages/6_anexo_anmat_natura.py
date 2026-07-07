@@ -435,6 +435,7 @@ def cargar_proximas(file_bytes, filename=''):
             tmp = f.name
         df = pd.read_excel(tmp, header=0)
         col_map = {c.strip().lower(): c for c in df.columns}
+        # Buscar columna de material con múltiples nombres posibles
         col_mat = None
         for posible in ['material', 'código de sku', 'codigo de sku', 'sku',
                         'cod. material', 'codigo material', 'código material',
@@ -446,11 +447,21 @@ def cargar_proximas(file_bytes, filename=''):
         if col_mat and col_mat != 'Material':
             df = df.rename(columns={col_mat: 'Material'})
         elif 'Material' not in df.columns:
+            # Último recurso: primera columna con códigos numéricos de 5+ dígitos
             for col in df.columns:
                 if df[col].dropna().astype(str).str.match(r'^\d{5,}').any():
                     df = df.rename(columns={col: 'Material'})
                     break
-        df['Material'] = df['Material'].astype(str).str.strip()
+        def _limpiar_material(v):
+            if pd.isna(v):
+                return ''
+            s = str(v).strip()
+            # Si es float con .0 final (ej: '50374280.0'), quitar el decimal
+            if re.match(r'^\d+\.0$', s):
+                s = s[:-2]
+            return s
+
+        df['Material'] = df['Material'].apply(_limpiar_material)
         return df, False, True, None
 
 def buscar_anmat(mat_code, df_anmat):
