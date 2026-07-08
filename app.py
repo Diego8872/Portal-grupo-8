@@ -203,6 +203,13 @@ projects = [
         "desc": "Validación automática de despachos de importación para Finning Soluciones Mineras. Cruza DI, facturas CAT, CMs, BL, Forwarding, DJ Origen y Excel NCM.",
         "page": "pages/18_corrector_DI_fasa_fsm.py"
     },
+    {
+        "icon": "🌳",
+        "name": "Corrector SENASA",
+        "tag": "Auditoría",
+        "desc": "Cruza la Declaración Jurada de SENASA (embalajes de madera) contra la DI. Valida punto de ingreso, medio de transporte, lugar de destino y países de origen/procedencia. Aduanas: Ezeiza y Buenos Aires.",
+        "page": "pages/19_corrector_senasa.py"
+    },
 ]
 
 coming_soon = [
