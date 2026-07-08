@@ -207,7 +207,7 @@ projects = [
         "icon": "🌳",
         "name": "Corrector SENASA",
         "tag": "Auditoría",
-        "desc": "Cruza la Declaración Jurada de SENASA (embalajes de madera) contra la DI. Valida punto de ingreso, transporte, destino y país de origen/procedencia. Ezeiza y Buenos Aires.",
+        "desc": "Cruza la Declaración Jurada de SENASA (embalajes de madera) contra la DI. Valida punto de ingreso, transporte, destino y país de origen/procedencia.",
         "page": "pages/19_corrector_senasa.py"
     },
 ]
