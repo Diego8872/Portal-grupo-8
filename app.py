@@ -196,6 +196,13 @@ projects = [
         "desc": "Asignación automática de Certificados Mineros al Template Unificado. Cruza PDFs de CE y RE para identificar el número de CE de cada Item.",
         "page": "pages/17_template_unificado_ce.py"
     },
+    {
+        "icon": "🚜",
+        "name": "Corrector DI FASA/FSM",
+        "tag": "Auditoría",
+        "desc": "Validación automática de despachos de importación para Finning Soluciones Mineras. Cruza DI, facturas CAT, CMs, BL, Forwarding, DJ Origen y Excel NCM.",
+        "page": "pages/18_corrector_DI_fasa_fsm.py"
+    },
 ]
 
 coming_soon = [
