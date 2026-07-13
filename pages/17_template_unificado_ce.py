@@ -48,8 +48,11 @@ def extraer_texto_pdf(file):
     return texto
 
 def extraer_re_de_ce(texto):
-    m = re.search(r'RE-\d{4}-\d+-APN-[\s\n]*DGDA#MEC', texto)
-    return m.group(0).replace('\n', '').replace(' ', '') if m else None
+    # [^\w\s]* acepta cualquier carácter especial entre # y MEC (ej: punto medio ·)
+    m = re.search(r'(RE-\d{4}-\d+-APN-[\s\n]*DGDA)#[^\w\s]*MEC', texto)
+    if m:
+        return m.group(1).replace('\n', '').replace(' ', '') + '#MEC'
+    return None
 
 def extraer_datos_re(texto):
     fob_m = re.search(r'Valor FOB TOTAL[^\d]*([\d,\.]+)', texto)
@@ -115,13 +118,6 @@ def exportar_excel(df):
     return buf.getvalue()
 
 def preasignar_codigos_compartidos(df, ce_info):
-    """
-    Resuelve códigos compartidos entre CEs a nivel de renglón individual.
-
-    FIX 1: filtra por la factura del CE específico (no la unión de facturas).
-    FIX 2: filtra por ValorFOBTotal de la línea ≈ FOB del CE, para discriminar
-            líneas completamente idénticas dentro de la misma factura.
-    """
     avisos = []
 
     codigo_a_ces = {}
@@ -138,7 +134,6 @@ def preasignar_codigos_compartidos(df, ce_info):
     for cod in codigos_compartidos:
         ces_que_compiten = codigo_a_ces[cod]
 
-        # Pool sin pre-filtro de factura: cada CE filtra por la suya en el loop
         mask_disp = mask_aplica & (df['D:CERTSM'] == '') & (df['CodigoParte'] == cod)
         candidatas = df[mask_disp].copy()
         if candidatas.empty:
@@ -155,7 +150,8 @@ def preasignar_codigos_compartidos(df, ce_info):
                 r for r in ce_info[nro_ce].get('renglones', []) if r['codigo'] == cod
             ]
 
-        # PASO A: match exacto renglón-a-línea filtrando por factura Y ValorFOBTotal del CE
+        # FIX 1: filtra por factura del CE específico
+        # FIX 2: filtra por ValorFOBTotal ≈ FOB del CE (discrimina líneas idénticas)
         for nro_ce, renglones in renglones_por_ce.items():
             factura_ce = ce_info[nro_ce].get('factura')
             fob_ce = ce_info[nro_ce]['fob']
@@ -176,7 +172,6 @@ def preasignar_codigos_compartidos(df, ce_info):
                     df.loc[idx, 'D:CERTSM'] = nro_ce
                     del pool[idx]
 
-        # PASO B: reportar lo que no pudo resolverse
         for nro_ce, renglones in renglones_por_ce.items():
             for rg in renglones:
                 ya_asignado = (
