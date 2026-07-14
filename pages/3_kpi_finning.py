@@ -226,7 +226,7 @@ def procesar_liberadas(df):
         desvio = dias is not None and dias > limite
         results.append({
             'razon': razon, 'nombre': 'FASA' if razon == FASA else 'FSM',
-            'ref': r.get('Referencia', ''), 'carpeta': r.get('Carpeta', ''),
+            'ref': str(r.get('Referencia', '')).strip(), 'carpeta': r.get('Carpeta', ''),
             'via': via, 'canal': canal, 'f_ofi': f_ofi, 'f_cancel': f_can,
             'hs': dias, 'limite': limite, 'desvio': desvio,
             'desvio_desc': '', 'parametro': ''
@@ -246,7 +246,7 @@ def procesar_oficializados(df):
         desvio = dias is not None and dias > limite
         results.append({
             'razon': razon, 'nombre': 'FASA' if razon == FASA else 'FSM',
-            'ref': r.get('Referencia', ''), 'carpeta': r.get('Carpeta', ''),
+            'ref': str(r.get('Referencia', '')).strip(), 'carpeta': r.get('Carpeta', ''),
             'via': via, 'f_ofi': f_ofi, 'f_ult': f_ult,
             'hs': dias, 'limite': limite, 'desvio': desvio,
             'desvio_desc': '', 'parametro': ''
@@ -261,7 +261,7 @@ def procesar_cm_presentados(df):
         dias  = dias_habiles(f_ult, f_tad)
         desvio = dias is not None and dias > 2
         results.append({
-            'carpeta': r.get('CARPETA', ''), 'exp': r.get('Expediente', ''),
+            'carpeta': r.get('CARPETA', ''), 'exp': str(r.get('Expediente', '')).strip(),
             'f_tad': f_tad, 'f_ult': f_ult, 'hs': dias,
             'desvio': desvio, 'desvio_desc': '', 'parametro': ''
         })
@@ -1123,7 +1123,13 @@ elif st.session_state.step == 2:
                             st.session_state.max_step     = max(st.session_state.max_step, 3)
                             st.rerun()
                     else:
-                        st.markdown(f'<div class="alert-warn">⚠️ Faltan completar {total_pend} desvíos. Revisá el Excel y volvé a subirlo.</div>', unsafe_allow_html=True)
+                        detail = []
+                        for i in pendientes:
+                            if 'ref' in i:
+                                detail.append(f"Liberadas/Ofi: {repr(i['ref'])}")
+                            else:
+                                detail.append(f"CM: {repr(str(i.get('exp','')))}")
+                        st.markdown(f'<div class="alert-warn">⚠️ Faltan completar {total_pend} desvíos.<br>Pendiente: {" | ".join(detail)}</div>', unsafe_allow_html=True)
 
                 except Exception as e:
                     st.markdown(f'<div class="alert-warn">❌ Error al leer el Excel: {str(e)}</div>', unsafe_allow_html=True)
