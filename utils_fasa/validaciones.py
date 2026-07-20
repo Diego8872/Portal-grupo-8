@@ -1,11 +1,11 @@
 import re
 import pandas as pd
-from config.defaults import (
+from config_fasa.defaults import (
     PAISES_PROHIBIDOS, CONCEPTOS_CON_CM, CONCEPTO_SIN_CM_PROHIBIDO,
     CONCEPTO_USADO, KEYWORDS_DUMPING, TOLERANCIA_FOB,
     BANCO_ARGENTINA, IMPOGIRO
 )
-from utils.parser_di import safe_float, normalizar_codigo
+from utils_fasa.parser_di import safe_float, normalizar_codigo
 
 CAMPOS_DUMPING_DJ = ["I:DUMPR60DECJUR", "I:DUMPR60PAISMAYOR", "I:DUMPADVALPAISTXT"]
 
