@@ -3,6 +3,12 @@ import openpyxl, re, unicodedata, os, io, base64
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import pdfplumber
 
+st.set_page_config(
+    page_title="Corrector CO Natura",
+    page_icon="📋",
+    layout="centered"
+)
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono&display=swap');
@@ -109,9 +115,6 @@ section[data-testid="stFileUploadDropzone"] {
     width: 100%;
     font-weight: 500 !important;
 }
-[data-testid="stToolbar"] { visibility: hidden !important; }
-    [data-testid="stDecoration"] { display: none !important; }
-    a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -306,7 +309,20 @@ def texto_es_suficiente(lines, min_chars=100):
 
 def leer_excel(path):
     wb = openpyxl.load_workbook(path, data_only=True)
-    ws_item = wb['Item']
+
+    # Búsqueda flexible de solapa Item (no hardcodeado a 'Item')
+    ws_item = wb['Item'] if 'Item' in wb.sheetnames else None
+    if ws_item is None:
+        for name in wb.sheetnames:
+            if 'tem' in name.lower():
+                ws_item = wb[name]
+                break
+    if ws_item is None:
+        raise ValueError(
+            f"No se encontró la solapa de ítems en el Excel. "
+            f"Solapas disponibles: {wb.sheetnames}"
+        )
+
     headers = [ws_item.cell(1, c).value for c in range(1, 50)]
     col_cant = next((i+1 for i,h in enumerate(headers) if h and 'CANTIDAD' in str(h).upper()), 7)
     col_mat  = next((i+1 for i,h in enumerate(headers) if h and 'MARCA-MODEL' in str(h).upper()), 6)
@@ -319,11 +335,29 @@ def leer_excel(path):
             if mat and not str(mat).replace('.','').isdigit():
                 mat = row[5]
             items.append({'ITEM': row[0], 'NCM': ncm_clean, 'CANTIDAD': row[col_cant-1], 'MARCA_MODEL_OTRO': mat})
-    ws_car = wb['Carátula']
-    rows_car = list(ws_car.iter_rows(values_only=True))
-    empresa  = rows_car[1][2] if len(rows_car) > 1 else None
-    facturas = rows_car[4][0] if len(rows_car) > 4 else None
-    vendedor = rows_car[4][1] if len(rows_car) > 4 else None
+
+    # Búsqueda flexible de solapa Carátula (no hardcodeado a 'Carátula')
+    ws_car = wb['Carátula'] if 'Carátula' in wb.sheetnames else None
+    if ws_car is None:
+        for name in wb.sheetnames:
+            if 'caratul' in norm(name).lower() or 'caratula' in name.lower():
+                ws_car = wb[name]
+                break
+    if ws_car is None:
+        # Fallback: cualquier otra solapa que no sea la de ítems
+        for name in wb.sheetnames:
+            if wb[name] is not ws_item:
+                ws_car = wb[name]
+                break
+
+    if ws_car is not None:
+        rows_car = list(ws_car.iter_rows(values_only=True))
+        empresa  = rows_car[1][2] if len(rows_car) > 1 else None
+        facturas = rows_car[4][0] if len(rows_car) > 4 else None
+        vendedor = rows_car[4][1] if len(rows_car) > 4 else None
+    else:
+        empresa = facturas = vendedor = None
+
     return {'items': items, 'empresa': empresa, 'facturas': facturas, 'vendedor': vendedor}
 
 def leer_fc(path):
@@ -407,12 +441,13 @@ def leer_co_pdf(path):
             if m and not data_co: data_co = m.group(1)
 
     # Patrón: orden NCM ... cantidad unidad valor en la misma línea
+    # NOTA: número de orden hasta 3 dígitos (hay CO con más de 99 ítems)
     pattern = re.compile(
-        r'^\s*(\d{1,2})\s+(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+(?:gr|kg|pc|pç|p[çc°¢])\s+([\d\.]+,\d{3})'
+        r'^\s*(\d{1,3})\s+(\d{4}\.\d{2}\.\d{2})[^\n]*?([\d\.]+,\d{3})\s+(?:gr|kg|pc|pç|p[çc°¢])\s+([\d\.]+,\d{3})'
     )
     # Patrón alternativo: orden NCM ... cantidad pç (formato de este CO)
     pattern_alt = re.compile(
-        r'^\s*(\d{1,2})\s+(\d{4}\.\d{2}\.\d{2}).*?([\d\.]+,\d{3})\s+pç.*?([\d\.]+,\d{3})'
+        r'^\s*(\d{1,3})\s+(\d{4}\.\d{2}\.\d{2}).*?([\d\.]+,\d{3})\s+pç.*?([\d\.]+,\d{3})'
     )
 
     mat_re_semicolon = re.compile(r';\s*(\d{7,8})(?:\s|$)')   # con ";" como pista fuerte
@@ -428,7 +463,8 @@ def leer_co_pdf(path):
         return True
 
     # Regex para detectar inicio de nuevo ítem (número de orden + NCM)
-    pat_nuevo_item = re.compile(r'^\s*\d{1,2}\s+\d{4}\.\d{2}\.\d{2}')
+    # NOTA: número de orden hasta 3 dígitos, igual que 'pattern'/'pattern_alt' arriba
+    pat_nuevo_item = re.compile(r'^\s*\d{1,3}\s+\d{4}\.\d{2}\.\d{2}')
 
     def buscar_material(lines, start, window=50):
         end = min(start + window, len(lines))
