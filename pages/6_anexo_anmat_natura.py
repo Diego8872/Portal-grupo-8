@@ -14,9 +14,6 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PageMargins
 
-# Página 6 del Portal Grupo 8 — Generador ANMAT Natura
-# Sin set_page_config — lo maneja el portal
-
 st.markdown("""
 <style>
     .header-box {
@@ -64,9 +61,6 @@ def limpiar_str(s):
     return s
 
 def _codigo_str(v):
-    """Convierte un código (material, registro, etc.) a string, evitando el
-    sufijo '.0' que aparece cuando Pandas fuerza una columna a float64
-    (por ejemplo, cuando hay celdas vacías/NaN mezcladas con números)."""
     if pd.isna(v):
         return ''
     s = str(v).strip()
@@ -92,38 +86,23 @@ def cargar_anmat(file_bytes):
         df = pd.read_excel(buf, sheet_name='HISTORICO', header=0)
     df['CM'] = df['CM'].apply(_codigo_str)
 
-    # Normalizar nombres de columnas que pueden variar entre archivos
     def _normalizar_col(df, col_estandar, variantes):
         if col_estandar in df.columns:
             return df
         for v in variantes:
             if v in df.columns:
                 return df.rename(columns={v: col_estandar})
-        # Búsqueda case-insensitive
         cols_upper = {c.upper(): c for c in df.columns}
         for v in variantes:
             if v.upper() in cols_upper:
                 return df.rename(columns={cols_upper[v.upper()]: col_estandar})
         return df
 
-    df = _normalizar_col(df, 'NOMBRE', [
-        'DESCRIPCION', 'DESCRIPTION', 'NOMBRE DEL PRODUCTO', 'PRODUCTO',
-        'NOMBRE DE REGISTRO DE PRODUCTO', 'NOMBRE REGISTRO DE PRODUCTO',
-    ])
-    df = _normalizar_col(df, 'Variedad', [
-        'VARIEDADES', 'Variedades', 'VARIEDAD',
-    ])
-    df = _normalizar_col(df, 'Registros ANMAT', [
-        'Registro ANMAT', 'REGISTROS ANMAT', 'REGISTRO ANMAT', 'Registros', 'REGISTRO',
-        'REGISTRO (TRAMITE #)', 'REGISTRO (TRÁMITE #)', 'TRAMITE', 'TRÁMITE',
-    ])
-    df = _normalizar_col(df, 'ORIGEN', [
-        'ORIGEN/ELABORADOR', 'ORIGEN / ELABORADOR', 'ELABORADOR', 'PAIS DE ORIGEN',
-    ])
-    df = _normalizar_col(df, 'Fecha Admision', [
-        'FECHA ADMISIÓN', 'FECHA ADMISION', 'FECHA DE ADMISION', 'FECHA DE ADMISIÓN',
-    ])
-
+    df = _normalizar_col(df, 'NOMBRE', ['DESCRIPCION', 'DESCRIPTION', 'NOMBRE DEL PRODUCTO', 'PRODUCTO', 'NOMBRE DE REGISTRO DE PRODUCTO', 'NOMBRE REGISTRO DE PRODUCTO'])
+    df = _normalizar_col(df, 'Variedad', ['VARIEDADES', 'Variedades', 'VARIEDAD'])
+    df = _normalizar_col(df, 'Registros ANMAT', ['Registro ANMAT', 'REGISTROS ANMAT', 'REGISTRO ANMAT', 'Registros', 'REGISTRO', 'REGISTRO (TRAMITE #)', 'REGISTRO (TRÁMITE #)', 'TRAMITE', 'TRÁMITE'])
+    df = _normalizar_col(df, 'ORIGEN', ['ORIGEN/ELABORADOR', 'ORIGEN / ELABORADOR', 'ELABORADOR', 'PAIS DE ORIGEN'])
+    df = _normalizar_col(df, 'Fecha Admision', ['FECHA ADMISIÓN', 'FECHA ADMISION', 'FECHA DE ADMISION', 'FECHA DE ADMISIÓN'])
     return df
 
 @st.cache_data
@@ -160,13 +139,8 @@ def cargar_pl(file_bytes):
         header_row = None
         for i, row in df.iterrows():
             row_str_raw = ' '.join(str(v).replace('\n', ' ').upper() for v in row.values if pd.notna(v))
-            # Normalizar acentos para comparación robusta (CÓDIGO -> CODIGO, etc.)
-            row_str = ''.join(
-                c for c in unicodedata.normalize('NFD', row_str_raw)
-                if unicodedata.category(c) != 'Mn'
-            )
+            row_str = ''.join(c for c in unicodedata.normalize('NFD', row_str_raw) if unicodedata.category(c) != 'Mn')
             vals_upper = [str(v).replace('\n', ' ').strip().upper() for v in row.values if pd.notna(v)]
-            # Detectar fila de header por palabras clave conocidas
             if ('MATERIAL CODE' in row_str or 'MATERIAL\nCODE' in str(row.values)
                     or ('CODE' in vals_upper and any(k in row_str for k in ['PRODUCT', 'LOT', 'DESCRIPTION', 'DESCRIPCION', 'PACKING']))
                     or ('CODIGO' in row_str and any(k in row_str for k in ['DESCRIPCION', 'LOTE', 'CANTIDAD']))
@@ -183,12 +157,10 @@ def cargar_pl(file_bytes):
                 for j, val in enumerate(vals):
                     val_str = str(val).replace('\n', ' ')
                     if 'Nº INVOICE:' in val_str or 'N° INVOICE:' in val_str:
-                        # 1) Número en la misma celda luego de ":"
                         parte = val_str.split(':', 1)[1].strip()
                         if parte and parte != 'nan':
                             invoice = parte
                             break
-                        # 2) Buscar en el resto de celdas de la misma fila (puede estar lejos)
                         for k in range(j + 1, len(vals)):
                             v = str(vals[k]).strip()
                             if v and v != 'nan':
@@ -197,25 +169,20 @@ def cargar_pl(file_bytes):
                         break
                 if invoice:
                     break
-        # Saltar 1 fila de subheader si existe, sino ir directo a datos
         data_start = header_row + 1
-        # Verificar si la fila siguiente al header tiene datos numéricos o es subheader
         if data_start < len(df):
             primera = df.iloc[data_start]
             tiene_numeros = any(str(v).strip().isdigit() or (len(str(v).strip()) >= 5 and str(v).strip().replace('.','').isdigit()) for v in primera.values if pd.notna(v))
             if not tiene_numeros:
-                data_start += 1  # saltar subheader
-        # Leer headers para detectar columnas por nombre (normalizando acentos)
+                data_start += 1
+
         def _sin_acentos(s):
             return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
 
-        header_vals = [_sin_acentos(str(v).replace('\n', ' ').strip().upper()) if pd.notna(v) else ''
-                       for v in df.iloc[header_row].values]
-
+        header_vals = [_sin_acentos(str(v).replace('\n', ' ').strip().upper()) if pd.notna(v) else '' for v in df.iloc[header_row].values]
         data = df.iloc[data_start:].copy().reset_index(drop=True)
         data.columns = range(len(data.columns))
 
-        # Detectar columna de material: primero por header, luego por contenido
         col_mat = None
         for idx, h in enumerate(header_vals):
             if h in ('CODE', 'CODIGO', 'MATERIAL CODE', 'CUSTOMER CODE'):
@@ -226,20 +193,16 @@ def cargar_pl(file_bytes):
                 break
 
         if col_mat is None:
-            # Fallback: primera columna con códigos numéricos 5+ dígitos o formato 1-XXXXX
             for col_idx in range(min(5, len(data.columns))):
                 muestra = data[col_idx].dropna().astype(str)
-                if (muestra.str.match(r'^\d{5,}').sum() > 0 or
-                        muestra.str.match(r'^\d+-\d{4,}').sum() > 0):
+                if (muestra.str.match(r'^\d{5,}').sum() > 0 or muestra.str.match(r'^\d+-\d{4,}').sum() > 0):
                     col_mat = col_idx
                     break
             if col_mat is None:
                 col_mat = 1
 
-        # Filtro de material: numérico 5+ dígitos O formato 1-XXXXX
         data = data[data[col_mat].astype(str).str.match(r'^\d{5,}$|^\d+-\d{4,}$')]
 
-        # Detectar columnas clave por header
         col_qty_idx, col_desc_idx, col_lote_idx, col_fecha_idx = 2, 3, 5, 6
         col_origen_idx = None
         lote_encontrado = False
@@ -248,28 +211,22 @@ def cargar_pl(file_bytes):
         for idx, h in enumerate(header_vals):
             if idx in [0, 1]:
                 continue
-            # Cantidad: QUANTITY PC / QUANTITY / CANTIDAD / PCS / TOTAL UNIDADES (excluir BOXES y TOTAL NET/GROSS)
             if not qty_encontrado and any(k in h for k in ['QUANTITY PC', 'QUANTITY', 'CANTIDAD', 'PCS', 'TOTAL NET WEIGHT', 'NET WEIGHT', 'TOTAL UNIDADES', 'TOTAL UNIDAD']) and 'BOX' not in h and ('TOTAL' not in h or 'WEIGHT' in h or 'UNIDAD' in h):
                 col_qty_idx = idx
                 qty_encontrado = True
-            # Descripción
             if any(k in h for k in ['DESCRIPTION', 'DESCRIP']):
                 col_desc_idx = idx
-            # Lote
             if 'LOT PRODUCT' in h and not lote_encontrado:
                 col_lote_idx = idx
                 lote_encontrado = True
             elif any(k in h for k in ['LOT NUMBER', 'LOT', 'LOTE', 'BATCH']) and 'SUPPLIER' not in h and 'BOX' not in h and not lote_encontrado:
                 col_lote_idx = idx
                 lote_encontrado = True
-            # Fecha
             if any(k in h for k in ['EXPIRE', 'VENC', 'EXPIR', 'EXPIRATION']):
                 col_fecha_idx = idx
-            # Origen (PL en español puede traer país de origen directo)
             if any(k in h for k in ['PAIS DE ORIGEN', 'PAÍS DE ORIGEN', 'COUNTRY OF ORIGIN']):
                 col_origen_idx = idx
 
-        # Normalizar fechas datetime → MM/YYYY
         if col_fecha_idx in data.columns:
             def normalizar_fecha(v):
                 if pd.isna(v) or str(v).strip() in ('', 'nan'):
@@ -277,14 +234,12 @@ def cargar_pl(file_bytes):
                 if isinstance(v, datetime):
                     return f"{v.month:02d}/{v.year}"
                 s = str(v).strip()
-                # Formato YYYY-MM-DD HH:MM:SS
                 m = re.match(r'(\d{4})-(\d{2})-(\d{2})', s)
                 if m:
                     return f"{m.group(2)}/{m.group(1)}"
                 return s
             data[col_fecha_idx] = data[col_fecha_idx].apply(normalizar_fecha)
 
-        # Reordenar a posiciones estándar: 1=mat, 2=qty, 3=desc, 5=lote, 6=fecha
         col_map_reorder = {1: col_mat, 2: col_qty_idx, 3: col_desc_idx, 5: col_lote_idx, 6: col_fecha_idx}
         if any(v != k for k, v in col_map_reorder.items()) and len(data) > 0:
             rename_map = {}
@@ -303,27 +258,8 @@ def cargar_pl(file_bytes):
     pl = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
     return pl, invoice
 
-PAISES_CONOCIDOS = [
-    'brazil', 'brasil', 'colombia', 'china', 'argentina', 'mexico', 'méxico',
-    'peru', 'perú', 'chile', 'uruguay', 'paraguay', 'bolivia', 'ecuador',
-    'usa', 'united states', 'estados unidos', 'france', 'francia',
-    'germany', 'alemania', 'italy', 'italia', 'spain', 'españa',
-    'japan', 'japón', 'japon', 'korea', 'corea', 'india', 'taiwan',
-]
-
-PAIS_NORMALIZADO = {
-    'brazil': 'Brasil', 'brasil': 'Brasil',
-    'colombia': 'Colombia', 'china': 'China',
-    'argentina': 'Argentina', 'mexico': 'México', 'méxico': 'México',
-    'peru': 'Perú', 'perú': 'Perú', 'chile': 'Chile',
-    'uruguay': 'Uruguay', 'paraguay': 'Paraguay', 'bolivia': 'Bolivia',
-    'ecuador': 'Ecuador', 'usa': 'USA', 'united states': 'USA',
-    'estados unidos': 'USA', 'france': 'Francia', 'francia': 'Francia',
-    'germany': 'Alemania', 'alemania': 'Alemania', 'italy': 'Italia',
-    'italia': 'Italia', 'spain': 'España', 'españa': 'España',
-    'japan': 'Japón', 'japón': 'Japón', 'japon': 'Japón',
-    'korea': 'Korea', 'corea': 'Korea', 'india': 'India', 'taiwan': 'Taiwan',
-}
+PAISES_CONOCIDOS = ['brazil', 'brasil', 'colombia', 'china', 'argentina', 'mexico', 'méxico', 'peru', 'perú', 'chile', 'uruguay', 'paraguay', 'bolivia', 'ecuador', 'usa', 'united states', 'estados unidos', 'france', 'francia', 'germany', 'alemania', 'italy', 'italia', 'spain', 'españa', 'japan', 'japón', 'japon', 'korea', 'corea', 'india', 'taiwan']
+PAIS_NORMALIZADO = {'brazil': 'Brasil', 'brasil': 'Brasil', 'colombia': 'Colombia', 'china': 'China', 'argentina': 'Argentina', 'mexico': 'México', 'méxico': 'México', 'peru': 'Perú', 'perú': 'Perú', 'chile': 'Chile', 'uruguay': 'Uruguay', 'paraguay': 'Paraguay', 'bolivia': 'Bolivia', 'ecuador': 'Ecuador', 'usa': 'USA', 'united states': 'USA', 'estados unidos': 'USA', 'france': 'Francia', 'francia': 'Francia', 'germany': 'Alemania', 'alemania': 'Alemania', 'italy': 'Italia', 'italia': 'Italia', 'spain': 'España', 'españa': 'España', 'japan': 'Japón', 'japón': 'Japón', 'japon': 'Japón', 'korea': 'Korea', 'corea': 'Korea', 'india': 'India', 'taiwan': 'Taiwan'}
 
 def _extraer_pais_de_texto(texto):
     t = texto.lower()
@@ -337,7 +273,6 @@ def _parsear_pdf_proximas(file_bytes):
         import pdfplumber
     except ImportError:
         return None, False, None
-
     texto_completo = ''
     tablas = []
     with pdfplumber.open(BytesIO(file_bytes)) as pdf:
@@ -346,13 +281,7 @@ def _parsear_pdf_proximas(file_bytes):
             t = page.extract_table()
             if t:
                 tablas.append(t)
-
-    patron_origen = [
-        r'country\s+of\s+origin\s*[:\-]\s*([A-Za-z\s]+)',
-        r'pa[ií]s\s+de\s+origen\s*[:\-]\s*([A-Za-z\s]+)',
-        r'origen\s*[:\-]\s*([A-Za-z\s]+)',
-        r'origin\s*[:\-]\s*([A-Za-z\s]+)',
-    ]
+    patron_origen = [r'country\s+of\s+origin\s*[:\-]\s*([A-Za-z\s]+)', r'pa[ií]s\s+de\s+origen\s*[:\-]\s*([A-Za-z\s]+)', r'origen\s*[:\-]\s*([A-Za-z\s]+)', r'origin\s*[:\-]\s*([A-Za-z\s]+)']
     origen_explicito = None
     for pat in patron_origen:
         m = re.search(pat, texto_completo, re.IGNORECASE)
@@ -362,15 +291,8 @@ def _parsear_pdf_proximas(file_bytes):
             if pais:
                 origen_explicito = pais
                 break
-
     origen_proveedor = None
-    patron_exportador = [
-        r'exporter\s*/\s*shipper\s*[:\-]?\s*(.+)',
-        r'exporter\s*[:\-]\s*(.+)',
-        r'shipper\s*[:\-]\s*(.+)',
-        r'exportador\s*[:\-]\s*(.+)',
-        r'proveedor\s*[:\-]\s*(.+)',
-    ]
+    patron_exportador = [r'exporter\s*/\s*shipper\s*[:\-]?\s*(.+)', r'exporter\s*[:\-]\s*(.+)', r'shipper\s*[:\-]\s*(.+)', r'exportador\s*[:\-]\s*(.+)', r'proveedor\s*[:\-]\s*(.+)']
     for pat in patron_exportador:
         m = re.search(pat, texto_completo, re.IGNORECASE)
         if m:
@@ -381,18 +303,12 @@ def _parsear_pdf_proximas(file_bytes):
             if pais:
                 origen_proveedor = pais
                 break
-
     if not origen_proveedor:
         primeras_lineas = '\n'.join(texto_completo.split('\n')[:15])
         origen_proveedor = _extraer_pais_de_texto(primeras_lineas)
-
-    col_material_keywords = ['code', 'código', 'codigo', 'material', 'material code',
-                              'item', 'article', 'artículo', 'articulo', 'ref', 'sku']
-    col_origen_keywords = ['origen', 'origin', 'país', 'pais', 'country']
-
+    col_material_keywords = ['code', 'código', 'codigo', 'material', 'material code', 'item', 'article', 'artículo', 'articulo', 'ref', 'sku']
     registros = []
     origen_tabla = origen_explicito
-
     for tabla in tablas:
         if not tabla or len(tabla) < 2:
             continue
@@ -404,7 +320,7 @@ def _parsear_pdf_proximas(file_bytes):
                 break
         col_orig_idx = None
         for i, h in enumerate(headers):
-            if any(kw in h for kw in col_origen_keywords):
+            if any(kw in h for kw in ['origen', 'origin', 'país', 'pais', 'country']):
                 col_orig_idx = i
                 break
         if col_mat_idx is None:
@@ -421,19 +337,15 @@ def _parsear_pdf_proximas(file_bytes):
                     if p:
                         orig = p
                 registros.append({'Material': val, 'Origen': orig or ''})
-
     if not registros:
         codigos = re.findall(r'(\d{5,8})', texto_completo)
         for cod in set(codigos):
             registros.append({'Material': cod, 'Origen': origen_tabla or ''})
-
     if not registros:
         return None, origen_explicito is not None, origen_proveedor
-
     df = pd.DataFrame(registros)
     df['Material'] = df['Material'].astype(str).str.strip()
     return df, origen_explicito is not None, origen_proveedor
-
 
 def cargar_proximas(file_bytes, filename=''):
     es_pdf = filename.lower().endswith('.pdf')
@@ -446,19 +358,14 @@ def cargar_proximas(file_bytes, filename=''):
             tmp = f.name
         df = pd.read_excel(tmp, header=0)
         col_map = {c.strip().lower(): c for c in df.columns}
-        # Buscar columna de material con múltiples nombres posibles
         col_mat = None
-        for posible in ['material', 'código de sku', 'codigo de sku', 'sku',
-                        'cod. material', 'codigo material', 'código material',
-                        'article', 'artículo', 'articulo', 'material code',
-                        'item', 'código', 'codigo']:
+        for posible in ['material', 'código de sku', 'codigo de sku', 'sku', 'cod. material', 'codigo material', 'código material', 'article', 'artículo', 'articulo', 'material code', 'item', 'código', 'codigo']:
             if posible in col_map:
                 col_mat = col_map[posible]
                 break
         if col_mat and col_mat != 'Material':
             df = df.rename(columns={col_mat: 'Material'})
         elif 'Material' not in df.columns:
-            # Último recurso: primera columna con códigos numéricos de 5+ dígitos
             for col in df.columns:
                 if df[col].dropna().astype(str).str.match(r'^\d{5,}').any():
                     df = df.rename(columns={col: 'Material'})
@@ -499,10 +406,7 @@ def buscar_avon(mat_code, df_avon):
 def buscar_fabricante(origen_str, mat_code, df_fab):
     origen = str(origen_str).strip()
     origen_limpio = limpiar_str(origen)
-    match_norm = None
-    match_parcial = None
-    match_row_norm = None
-    match_row_parcial = None
+    match_norm = match_parcial = match_row_norm = match_row_parcial = None
     for _, row in df_fab.iterrows():
         en_hist = str(row['En Historico']).strip()
         if not en_hist or en_hist == 'nan':
@@ -511,36 +415,24 @@ def buscar_fabricante(origen_str, mat_code, df_fab):
         if origen == en_hist:
             return row['Corresponde'], None, row
         if match_norm is None and origen_limpio == en_hist_limpio:
-            match_norm = row['Corresponde']
-            match_row_norm = row
+            match_norm = row['Corresponde']; match_row_norm = row
         if match_parcial is None and en_hist_limpio in origen_limpio:
-            match_parcial = row['Corresponde']
-            match_row_parcial = row
+            match_parcial = row['Corresponde']; match_row_parcial = row
     if match_norm:
         return match_norm, None, match_row_norm
     if match_parcial:
         return match_parcial, None, match_row_parcial
     return None, f"Fabricante no encontrado para material {mat_code} (origen: {origen_str})", None
 
-
 def extraer_origen_de_fila_fab(fab_row):
-    """
-    Dado el row de Fabricantes que matcheó, extrae el país buscando en
-    'En Historico' y 'Corresponde'. Retorna (pais, lista_paises_encontrados).
-    """
     if fab_row is None:
         return None, []
-
-    textos = [
-        str(fab_row.get('En Historico', '')),
-        str(fab_row.get('Corresponde', '')),
-    ]
+    textos = [str(fab_row.get('En Historico', '')), str(fab_row.get('Corresponde', ''))]
     paises_encontrados = []
     for texto in textos:
         p = _extraer_pais_de_texto(texto)
         if p and p not in paises_encontrados:
             paises_encontrados.append(p)
-
     if len(paises_encontrados) == 1:
         return paises_encontrados[0], paises_encontrados
     return None, paises_encontrados
@@ -613,13 +505,6 @@ def verificar_vencimiento(expire_str):
     return 'ok', None
 
 def buscar_equivalente_en_bases(cod_equiv, df_anmat, df_avon, df_prox, df_fab, df_ncm, descripcion_pl=''):
-    """
-    Busca un código equivalente en ANMAT y Avon.
-    Retorna (datos_dict, fuente, error_msg)
-    datos_dict: diccionario con los campos del anexo (o None si no encontrado)
-    fuente: 'anmat' | 'avon' | None
-    error_msg: string con error o None
-    """
     anmat_row = buscar_anmat(cod_equiv, df_anmat)
     if anmat_row is not None:
         nombre = str(anmat_row['NOMBRE']) if pd.notna(anmat_row['NOMBRE']) else ''
@@ -627,24 +512,12 @@ def buscar_equivalente_en_bases(cod_equiv, df_anmat, df_avon, df_prox, df_fab, d
         contenido = str(anmat_row['CONTENIDO NETO']) if pd.notna(anmat_row['CONTENIDO NETO']) else ''
         registro = str(anmat_row['Registros ANMAT']) if pd.notna(anmat_row['Registros ANMAT']) else ''
         origen = str(anmat_row['ORIGEN']) if pd.notna(anmat_row['ORIGEN']) else ''
-
         if 'REFIL' in descripcion_pl.upper():
             nombre = nombre + ' (REPUESTO)'
-
         origen_norm = normalizar_pais(origen).capitalize() if origen != 'nan' else ''
         fab, _, _fab_row = buscar_fabricante(origen, cod_equiv, df_fab)
         ncm, _ = buscar_ncm(cod_equiv, df_ncm)
-
-        return {
-            'Marca y Nombre del producto': nombre if nombre != 'nan' else '',
-            'Variedades': variedad if variedad != 'nan' else '',
-            'Presentación': contenido if contenido != 'nan' else '',
-            'N° de inscripcion': registro if registro != 'nan' else '',
-            'Origen': origen_norm,
-            'Fabricante': fab or '',
-            'Posición Arancelaria': ncm or '',
-        }, 'anmat', None
-
+        return {'Marca y Nombre del producto': nombre if nombre != 'nan' else '', 'Variedades': variedad if variedad != 'nan' else '', 'Presentación': contenido if contenido != 'nan' else '', 'N° de inscripcion': registro if registro != 'nan' else '', 'Origen': origen_norm, 'Fabricante': fab or '', 'Posición Arancelaria': ncm or ''}, 'anmat', None
     avon_row = buscar_avon(cod_equiv, df_avon)
     if avon_row is not None:
         nombre_avon = str(avon_row.get('NOMBRE DE REGISTRO DE PRODUCTO', ''))
@@ -653,26 +526,11 @@ def buscar_equivalente_en_bases(cod_equiv, df_anmat, df_avon, df_prox, df_fab, d
         if 'REFIL' in descripcion_pl.upper():
             nombre_avon = nombre_avon + ' (REPUESTO)'
         ncm, _ = buscar_ncm(cod_equiv, df_ncm)
-
-        return {
-            'Marca y Nombre del producto': nombre_avon if nombre_avon != 'nan' else '',
-            'Variedades': '',
-            'Presentación': contenido_avon if contenido_avon != 'nan' else '',
-            'N° de inscripcion': registro_avon if registro_avon != 'nan' else '',
-            'Origen': '',
-            'Fabricante': '',
-            'Posición Arancelaria': ncm or '',
-        }, 'avon', None
-
+        return {'Marca y Nombre del producto': nombre_avon if nombre_avon != 'nan' else '', 'Variedades': '', 'Presentación': contenido_avon if contenido_avon != 'nan' else '', 'N° de inscripcion': registro_avon if registro_avon != 'nan' else '', 'Origen': '', 'Fabricante': '', 'Posición Arancelaria': ncm or ''}, 'avon', None
     return None, None, f"Código {cod_equiv} no encontrado en ANMAT ni Avon."
 
-
 def procesar_pl(pl, df_anmat, df_avon, df_prox, df_fab, df_ncm):
-    filas = []
-    alertas_excluir = []
-    alertas_avon = []
-    alertas_generales = []
-
+    filas = []; alertas_excluir = []; alertas_avon = []; alertas_generales = []
     for _, pl_row in pl.iterrows():
         mat_code = str(pl_row[1]).strip()
         if not re.match(r'^\d{5,}$|^\d+-\d{4,}$', mat_code):
@@ -684,133 +542,62 @@ def procesar_pl(pl, df_anmat, df_avon, df_prox, df_fab, df_ncm):
             cantidad_str = str(cantidad_raw).strip()
             m_cant = re.match(r'^([\d,\.]+)', cantidad_str.replace(' ', ''))
             if m_cant:
-                try:
-                    cantidad = int(float(m_cant.group(1).replace(',', '')))
-                except:
-                    cantidad = cantidad_str
+                try: cantidad = int(float(m_cant.group(1).replace(',', '')))
+                except: cantidad = cantidad_str
             else:
                 cantidad = cantidad_str
         descripcion_pl = str(pl_row[3]).strip() if pd.notna(pl_row[3]) else ''
         lot_product = str(pl_row[5]).strip() if pd.notna(pl_row[5]) else ''
         expire_date = str(pl_row[6]).strip() if pd.notna(pl_row[6]) else ''
-
-        fila = {
-            'MATERIAL': mat_code,
-            'descripcion_factura': descripcion_pl,
-            'Marca y Nombre del producto': '',
-            'Variedades': '',
-            'Presentación': '',
-            'Cantidad': cantidad,
-            'N° de inscripcion': '',
-            'Lote': lot_product,
-            'Fecha de vencimiento': expire_date,
-            'Origen': '',
-            'Fabricante': '',
-            'Posición Arancelaria': '',
-            '_alertas': [],
-            '_skip': False,
-            '_avon': False,
-            '_necesita_completar': False,
-            '_vencimiento': None,
-            '_multi_registro': False,
-            '_expanded': False,
-        }
-
+        fila = {'MATERIAL': mat_code, 'descripcion_factura': descripcion_pl, 'Marca y Nombre del producto': '', 'Variedades': '', 'Presentación': '', 'Cantidad': cantidad, 'N° de inscripcion': '', 'Lote': lot_product, 'Fecha de vencimiento': expire_date, 'Origen': '', 'Fabricante': '', 'Posición Arancelaria': '', '_alertas': [], '_skip': False, '_avon': False, '_necesita_completar': False, '_vencimiento': None, '_multi_registro': False, '_expanded': False}
         estado_venc, msg_venc = verificar_vencimiento(expire_date)
         if msg_venc:
-            fila['_vencimiento'] = estado_venc
-            fila['_alertas'].append(msg_venc)
-            alertas_generales.append(f"{mat_code} — {msg_venc}")
-
+            fila['_vencimiento'] = estado_venc; fila['_alertas'].append(msg_venc); alertas_generales.append(f"{mat_code} — {msg_venc}")
         anmat_row = buscar_anmat(mat_code, df_anmat)
-
         if anmat_row is not None:
             nombre = str(anmat_row['NOMBRE']) if pd.notna(anmat_row['NOMBRE']) else ''
             variedad = str(anmat_row['Variedad']) if pd.notna(anmat_row['Variedad']) else ''
             contenido = str(anmat_row['CONTENIDO NETO']) if pd.notna(anmat_row['CONTENIDO NETO']) else ''
             registro = str(anmat_row['Registros ANMAT']) if pd.notna(anmat_row['Registros ANMAT']) else ''
             origen = str(anmat_row['ORIGEN']) if pd.notna(anmat_row['ORIGEN']) else ''
-
             if 'REFIL' in descripcion_pl.upper():
                 nombre = nombre + ' (REPUESTO)'
-
             fila['Origen'] = normalizar_pais(origen).capitalize() if origen != 'nan' else ''
-
             _, alerta_origen = verificar_origen_proximas(origen, mat_code, df_prox)
             if alerta_origen:
-                fila['_alertas'].append(alerta_origen)
-                alertas_generales.append(alerta_origen)
-
+                fila['_alertas'].append(alerta_origen); alertas_generales.append(alerta_origen)
             fab, alerta_fab, _fab_row = buscar_fabricante(origen, mat_code, df_fab)
             if alerta_fab:
-                fila['_alertas'].append(alerta_fab)
-                alertas_generales.append(alerta_fab)
+                fila['_alertas'].append(alerta_fab); alertas_generales.append(alerta_fab)
             else:
                 fila['Fabricante'] = fab
-
             registros = separar_registros(registro)
-            if len(registros) <= 1:
-                fila['Marca y Nombre del producto'] = nombre
-                fila['Variedades'] = variedad if variedad != 'nan' else ''
-                fila['Presentación'] = contenido if contenido != 'nan' else ''
-                fila['N° de inscripcion'] = registro if registro != 'nan' else ''
-            else:
-                fila['Marca y Nombre del producto'] = nombre
-                fila['Variedades'] = variedad if variedad != 'nan' else ''
-                fila['Presentación'] = contenido if contenido != 'nan' else ''
-                fila['N° de inscripcion'] = registro if registro != 'nan' else ''
+            fila['Marca y Nombre del producto'] = nombre
+            fila['Variedades'] = variedad if variedad != 'nan' else ''
+            fila['Presentación'] = contenido if contenido != 'nan' else ''
+            fila['N° de inscripcion'] = registro if registro != 'nan' else ''
+            if len(registros) > 1:
                 fila['_multi_registro'] = True
                 idx_fila_principal = len(filas)
                 filas.append(fila)
                 for nro in registros:
                     anmat_rows, status = buscar_por_registro(nro, df_anmat)
                     if status == "NOT_FOUND":
-                        msg = "No encontrado: " + nro
-                        fila_exp = {
-                            'MATERIAL': '', 'descripcion_factura': '',
-                            'Marca y Nombre del producto': '', 'Variedades': '',
-                            'Presentación': '', 'Cantidad': '',
-                            'N° de inscripcion': nro, 'Lote': '',
-                            'Fecha de vencimiento': '', 'Origen': '',
-                            'Fabricante': '', 'Posición Arancelaria': '',
-                            '_alertas': [msg], '_skip': False,
-                            '_avon': False, '_necesita_completar': False,
-                            '_expanded': True, '_multi_opciones': False,
-                            '_nro_registro': nro,
-                        }
-                        alertas_generales.append(msg)
-                        filas.append(fila_exp)
+                        fila_exp = {'MATERIAL': '', 'descripcion_factura': '', 'Marca y Nombre del producto': '', 'Variedades': '', 'Presentación': '', 'Cantidad': '', 'N° de inscripcion': nro, 'Lote': '', 'Fecha de vencimiento': '', 'Origen': '', 'Fabricante': '', 'Posición Arancelaria': '', '_alertas': ["No encontrado: " + nro], '_skip': False, '_avon': False, '_necesita_completar': False, '_expanded': True, '_multi_opciones': False, '_nro_registro': nro}
+                        alertas_generales.append("No encontrado: " + nro); filas.append(fila_exp)
                     else:
                         es_multiple = status == "MULTIPLE"
                         for multi_i, anmat_nro in enumerate(anmat_rows):
                             n = str(anmat_nro['NOMBRE']) if pd.notna(anmat_nro['NOMBRE']) else ''
                             v = str(anmat_nro['Variedad']) if pd.notna(anmat_nro['Variedad']) else ''
                             c = str(anmat_nro['CONTENIDO NETO']) if pd.notna(anmat_nro['CONTENIDO NETO']) else ''
-                            if 'REFIL' in descripcion_pl.upper():
-                                n = n + ' (REPUESTO)'
-                            fila_exp = {
-                                'MATERIAL': '', 'descripcion_factura': '',
-                                'Marca y Nombre del producto': n,
-                                'Variedades': v if v != 'nan' else '',
-                                'Presentación': c if c != 'nan' else '',
-                                'Cantidad': '', 'N° de inscripcion': nro,
-                                'Lote': '', 'Fecha de vencimiento': '',
-                                'Origen': '', 'Fabricante': '',
-                                'Posición Arancelaria': '',
-                                '_alertas': [], '_skip': es_multiple,
-                                '_avon': False, '_necesita_completar': False,
-                                '_expanded': True, '_multi_opciones': es_multiple,
-                                '_nro_registro': nro,
-                                '_multi_idx': multi_i,
-                            }
+                            if 'REFIL' in descripcion_pl.upper(): n = n + ' (REPUESTO)'
+                            fila_exp = {'MATERIAL': '', 'descripcion_factura': '', 'Marca y Nombre del producto': n, 'Variedades': v if v != 'nan' else '', 'Presentación': c if c != 'nan' else '', 'Cantidad': '', 'N° de inscripcion': nro, 'Lote': '', 'Fecha de vencimiento': '', 'Origen': '', 'Fabricante': '', 'Posición Arancelaria': '', '_alertas': [], '_skip': es_multiple, '_avon': False, '_necesita_completar': False, '_expanded': True, '_multi_opciones': es_multiple, '_nro_registro': nro, '_multi_idx': multi_i}
                             filas.append(fila_exp)
                 ncm, alerta_ncm = buscar_ncm(mat_code, df_ncm)
-                if alerta_ncm:
-                    alertas_generales.append(alerta_ncm)
-                else:
-                    filas[idx_fila_principal]['Posición Arancelaria'] = ncm
+                if alerta_ncm: alertas_generales.append(alerta_ncm)
+                else: filas[idx_fila_principal]['Posición Arancelaria'] = ncm
                 continue
-
         else:
             avon_row = buscar_avon(mat_code, df_avon)
             if avon_row is not None:
@@ -818,94 +605,44 @@ def procesar_pl(pl, df_anmat, df_avon, df_prox, df_fab, df_ncm):
                 def _get_avon(row, variantes, default=''):
                     for v in variantes:
                         val = row.get(v)
-                        if val is not None:
-                            return str(val).strip()
-                    for k in row.index:
-                        k_norm = str(k).strip().lower().replace(' ', '').replace('/', '').replace('\n', '')
-                        for v in variantes:
-                            v_norm = v.strip().lower().replace(' ', '').replace('/', '').replace('\n', '')
-                            if k_norm == v_norm:
-                                return str(row[k]).strip()
+                        if val is not None: return str(val).strip()
                     return default
-
-                cm_zpac = _get_avon(avon_row, ['CM / ZPAC', 'CM/ZPAC', ' CM/ZPAC', 'CM/ ZPAC'])
-                fi_code = _get_avon(avon_row, ['FI Code Local', 'FI Code', 'FICodeLocal'])
-                fila['MATERIAL'] = cm_zpac if cm_zpac and cm_zpac != 'nan' else fi_code
-
                 nombre_avon = _get_avon(avon_row, ['NOMBRE DE REGISTRO DE PRODUCTO', 'NOMBRE REGISTRO', 'NOMBRE'])
                 contenido_avon = _get_avon(avon_row, ['CONTENIDO LEGAL', 'CONTENIDO'])
-                registro_avon = _get_avon(avon_row, [
-                    'Reg. SP   (Trámite#)\nARGENTINA NATURA',
-                    'Reg. SP   (Trámite#)\nNATURA ARG',
-                    'Reg. SP (Trámite#)\nARGENTINA NATURA',
-                    'Reg. SP   (Tramite#)\nARGENTINA NATURA',
-                    'Reg. SP   (Trámite#)\nNATURA ARGENTINA',
-                ])
-
-                if 'REFIL' in descripcion_pl.upper():
-                    nombre_avon = nombre_avon + ' (REPUESTO)'
-
+                registro_avon = _get_avon(avon_row, ['Reg. SP   (Trámite#)\nARGENTINA NATURA', 'Reg. SP   (Trámite#)\nNATURA ARG', 'Reg. SP (Trámite#)\nARGENTINA NATURA', 'Reg. SP   (Tramite#)\nARGENTINA NATURA', 'Reg. SP   (Trámite#)\nNATURA ARGENTINA'])
+                if 'REFIL' in descripcion_pl.upper(): nombre_avon = nombre_avon + ' (REPUESTO)'
                 fila['Marca y Nombre del producto'] = nombre_avon if nombre_avon != 'nan' else ''
                 fila['Presentación'] = contenido_avon if contenido_avon != 'nan' else ''
                 fila['N° de inscripcion'] = registro_avon if registro_avon != 'nan' else ''
-                fila['Variedades'] = ''
-                fila['Origen'] = ''
-                fila['_necesita_completar'] = True
-
+                fila['Variedades'] = ''; fila['Origen'] = ''; fila['_necesita_completar'] = True
                 fab, alerta_fab, _fab_row = buscar_fabricante('', mat_code, df_fab)
                 fila['Fabricante'] = fab if not alerta_fab else ''
-
                 avon_idx_actual = len(alertas_avon)
-                alertas_avon.append({
-                    'material': mat_code,
-                    'descripcion': descripcion_pl,
-                    'fila_idx': len(filas),
-                    'avon_idx': avon_idx_actual,
-                })
+                alertas_avon.append({'material': mat_code, 'descripcion': descripcion_pl, 'fila_idx': len(filas), 'avon_idx': avon_idx_actual})
                 fila['_avon_idx'] = avon_idx_actual
             else:
-                # No encontrado en ninguna base → marcar para alerta con equivalente
-                fila['_skip'] = True
-                fila['_no_encontrado'] = True
-                alertas_excluir.append({
-                    'material': mat_code,
-                    'descripcion': descripcion_pl,
-                    'fila_idx': len(filas)
-                })
-
+                fila['_skip'] = True; fila['_no_encontrado'] = True
+                alertas_excluir.append({'material': mat_code, 'descripcion': descripcion_pl, 'fila_idx': len(filas)})
         ncm, alerta_ncm = buscar_ncm(mat_code, df_ncm)
-        if alerta_ncm:
-            fila['_alertas'].append(alerta_ncm)
-            alertas_generales.append(alerta_ncm)
-            fila['Posición Arancelaria'] = ''
-        else:
-            fila['Posición Arancelaria'] = ncm
-
+        if alerta_ncm: fila['_alertas'].append(alerta_ncm); alertas_generales.append(alerta_ncm); fila['Posición Arancelaria'] = ''
+        else: fila['Posición Arancelaria'] = ncm
         filas.append(fila)
-
     return filas, alertas_excluir, alertas_avon, alertas_generales
 
 def separar_anexos(filas):
     principal, difusor, muestras, alertas_sep = [], [], [], []
     palabras_muestra = ['amostra', 'muestra', 'sample', 'muestras', 'amostras']
     for fila in filas:
-        if fila['_skip']:
-            continue
+        if fila['_skip']: continue
         desc = fila['descripcion_factura'].upper()
         desc_lower = fila['descripcion_factura'].lower()
         es_difusor = 'DIFUSOR' in desc
         es_3x1 = bool(re.search(r'3\s*[Xx]\s*1(?![0-9])', desc))
         es_muestra = any(p in desc_lower for p in palabras_muestra)
-
-        if es_difusor and es_3x1:
-            alertas_sep.append(f"Material {fila['MATERIAL']} tiene DIFUSOR y 3X1 — verificar.")
-            principal.append(fila)
-        elif es_difusor:
-            difusor.append(fila)
-        elif es_3x1 and es_muestra:
-            muestras.append(fila)
-        else:
-            principal.append(fila)
+        if es_difusor and es_3x1: alertas_sep.append(f"Material {fila['MATERIAL']} tiene DIFUSOR y 3X1 — verificar."); principal.append(fila)
+        elif es_difusor: difusor.append(fila)
+        elif es_3x1 and es_muestra: muestras.append(fila)
+        else: principal.append(fila)
     return principal, difusor, muestras, alertas_sep
 
 FABRICANTE_MUESTRAS = 'INDUSTRIA E COMERCIO DE COSMÉTICOS NATURA LTDA'
@@ -915,145 +652,62 @@ def parsear_msg(file_bytes):
     try:
         import extract_msg
         with tempfile.NamedTemporaryFile(suffix='.msg', delete=False) as f:
-            f.write(file_bytes)
-            tmp = f.name
-        msg = extract_msg.Message(tmp)
-        body = msg.body or ''
+            f.write(file_bytes); tmp = f.name
+        msg = extract_msg.Message(tmp); body = msg.body or ''
     except Exception as e:
         return None, f"No se pudo leer el archivo .msg: {e}"
-
     primer_bloque = re.split(r'_{3,}', body)[0]
     lineas = [l.strip() for l in primer_bloque.replace('\r\n', '\n').replace('\r', '\n').split('\n')]
-
-    # ── Formato A: Código del artículo / NCM / Sí o No ──
     inicio = None
     for i, l in enumerate(lineas):
         if 'código del artículo' in l.lower() or 'codigo del articulo' in l.lower():
-            inicio = i + 1
-            break
-
+            inicio = i + 1; break
     if inicio is not None:
         cols_ignorar = {'ncm', 'anmat', 'código del artículo', 'codigo del articulo', ''}
         tokens = [l for l in lineas[inicio:] if l.lower() not in cols_ignorar]
-        items = []
-        i = 0
+        items = []; i = 0
         while i + 2 < len(tokens):
-            codigo = tokens[i].strip()
-            ncm    = tokens[i+1].strip()
-            anmat_val = tokens[i+2].strip().lower()
+            codigo = tokens[i].strip(); ncm = tokens[i+1].strip(); anmat_val = tokens[i+2].strip().lower()
             if anmat_val in ('si', 'sí', 'no') and re.match(r'^\d{4,}', ncm):
-                items.append({'codigo': codigo, 'ncm': ncm, 'anmat': anmat_val in ('si', 'sí')})
-                i += 3
-            else:
-                i += 1
-        if items:
-            return items, None
-
-    # ── Formato B: Material / Descripción / NCM / Observ. (ANMAT o -) ──
-    inicio_b = None
-    for i, l in enumerate(lineas):
-        if l.lower() in ('material', 'código', 'codigo') and i + 1 < len(lineas):
-            siguientes = [lineas[j].lower() for j in range(i+1, min(i+5, len(lineas))) if lineas[j].strip()]
-            if any(k in siguientes for k in ['descripción', 'descripcion', 'ncm', 'observ.', 'observaciones']):
-                inicio_b = i + 1
-                break
-
-    if inicio_b is not None:
-        headers_b = {'descripción', 'descripcion', 'ncm', 'observ.', 'observaciones', ''}
-        tokens_b = [l for l in lineas[inicio_b:] if l.lower() not in headers_b]
-        items = []
-        i = 0
-        while i < len(tokens_b):
-            codigo = tokens_b[i].strip()
-            if not re.match(r'^\d{5,}|^\d+-\d+', codigo):
-                i += 1
-                continue
-            ncm = None
-            observ = None
-            for j in range(i+1, min(i+6, len(tokens_b))):
-                val = tokens_b[j].strip()
-                if re.match(r'^\d{4}\.\d{2}', val):
-                    ncm = val
-                    if j+1 < len(tokens_b):
-                        observ = tokens_b[j+1].strip()
-                    i = j + 2
-                    break
-            else:
-                i += 1
-                continue
-            if ncm:
-                es_anmat = observ is not None and 'anmat' in observ.lower()
-                items.append({'codigo': codigo, 'ncm': ncm, 'anmat': es_anmat})
-        if items:
-            return items, None
-
+                items.append({'codigo': codigo, 'ncm': ncm, 'anmat': anmat_val in ('si', 'sí')}); i += 3
+            else: i += 1
+        if items: return items, None
     return None, "No se encontró la tabla Código / NCM / ANMAT en el mail."
 
-
 def cargar_clasificacion_excel(file_bytes):
-    """
-    Lee el Excel de clasificación ANMAT (alternativa al .msg).
-    Columnas esperadas: Material, Descripción, NCM, Observ.
-    Observ. dice 'ANMAT' si corresponde, o '-' / vacío si no.
-    Retorna: (items, error)
-    items: lista de dicts {'codigo': str, 'ncm': str, 'anmat': bool}
-    """
     try:
         with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
-            f.write(file_bytes)
-            tmp = f.name
+            f.write(file_bytes); tmp = f.name
         df = pd.read_excel(tmp, header=0)
     except Exception as e:
         return None, f"No se pudo leer el archivo Excel: {e}"
-
-    # Normalizar nombres de columna (tolerante a variaciones)
     col_map = {c.strip().lower(): c for c in df.columns}
-
     def _buscar_col(variantes):
         for v in variantes:
-            if v in col_map:
-                return col_map[v]
+            if v in col_map: return col_map[v]
         return None
-
     col_material = _buscar_col(['material', 'código', 'codigo'])
     col_ncm = _buscar_col(['ncm'])
     col_observ = _buscar_col(['observ.', 'observ', 'observaciones', 'anmat'])
-
     if col_material is None or col_ncm is None:
         return None, "El Excel debe tener al menos las columnas Material y NCM."
-
     items = []
     for _, row in df.iterrows():
         codigo = str(row[col_material]).strip() if pd.notna(row[col_material]) else ''
-        if not re.match(r'^\d{5,}|^\d+-\d+', codigo):
-            continue
+        if not re.match(r'^\d{5,}|^\d+-\d+', codigo): continue
         ncm = str(row[col_ncm]).strip() if pd.notna(row[col_ncm]) else ''
         observ = str(row[col_observ]).strip() if col_observ and pd.notna(row[col_observ]) else ''
         es_anmat = 'anmat' in observ.lower()
         items.append({'codigo': codigo, 'ncm': ncm, 'anmat': es_anmat})
-
-    if not items:
-        return None, "No se encontraron filas válidas en el Excel de clasificación."
-
+    if not items: return None, "No se encontraron filas válidas en el Excel de clasificación."
     return items, None
-
 
 def cargar_pl_muestras(file_bytes):
     with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
-        f.write(file_bytes)
-        tmp = f.name
-
-    xl = pd.ExcelFile(tmp)
-    invoice = None
-    items = []
-
+        f.write(file_bytes); tmp = f.name
+    xl = pd.ExcelFile(tmp); invoice = None; items = []
     for sh in xl.sheet_names:
-        sh_lower = sh.lower()
-        if len(xl.sheet_names) > 1 and not any(k in sh_lower for k in ['packing', 'invoice', 'modelo', 'pl', 'list']):
-            continue
-
         df_raw = pd.read_excel(tmp, sheet_name=sh, header=None)
-
         if not invoice:
             for i, row in df_raw.iterrows():
                 vals = list(row.values)
@@ -1061,292 +715,139 @@ def cargar_pl_muestras(file_bytes):
                     val_str = str(val).replace('\n', ' ')
                     if 'Nº INVOICE:' in val_str or 'N° INVOICE:' in val_str:
                         parte = val_str.split(':', 1)[1].strip()
-                        if parte and parte != 'nan':
-                            invoice = parte
-                            break
+                        if parte and parte != 'nan': invoice = parte; break
                         for k in range(j + 1, len(vals)):
                             v = str(vals[k]).strip()
-                            if v and v != 'nan':
-                                invoice = v
-                                break
+                            if v and v != 'nan': invoice = v; break
                         break
-                if invoice:
-                    break
-
+                if invoice: break
         header_row_idx = None
         for i, row in df_raw.iterrows():
             if any('MATERIAL CODE' in str(v).upper() for v in row.values if v):
-                header_row_idx = i
-                break
-        if header_row_idx is None:
-            continue
-
+                header_row_idx = i; break
+        if header_row_idx is None: continue
         headers = [str(v).strip().upper() if v else '' for v in df_raw.iloc[header_row_idx].values]
-
-        col_material = None
-        col_qty_kg   = None
-        col_qty_g    = None
-        col_qty_un   = None
-        col_desc     = None
-        col_lot      = None
-        col_expire   = None
-
+        col_material = col_qty_kg = col_qty_g = col_qty_un = col_desc = col_lot = col_expire = None
         for idx, h in enumerate(headers):
-            if 'MATERIAL CODE' in h:
-                col_material = idx
+            if 'MATERIAL CODE' in h: col_material = idx
             elif ('QUANTITY' in h or 'CANTIDAD' in h) and ('KG' in h or 'KILO' in h):
-                if col_qty_kg is None:
-                    col_qty_kg = idx
+                if col_qty_kg is None: col_qty_kg = idx
             elif ('QUANTITY' in h or 'CANTIDAD' in h) and ('GRAM' in h) and 'KG' not in h:
-                if col_qty_g is None:
-                    col_qty_g = idx
+                if col_qty_g is None: col_qty_g = idx
             elif ('QUANTITY' in h or 'CANTIDAD' in h) and ('UNIT' in h or 'UNID' in h):
-                if col_qty_un is None:
-                    col_qty_un = idx
+                if col_qty_un is None: col_qty_un = idx
             elif ('QUANTITY' in h or 'CANTIDAD' in h) and col_qty_kg is None and col_qty_g is None and col_qty_un is None:
                 col_qty_kg = idx
             elif 'DESCRIPTION' in h or 'DESCRIPCI' in h:
-                if col_desc is None:
-                    col_desc = idx
+                if col_desc is None: col_desc = idx
             elif 'LOT' in h or 'LOTE' in h:
-                if col_lot is None:
-                    col_lot = idx
+                if col_lot is None: col_lot = idx
             elif 'EXPIRE' in h or 'VENC' in h:
-                if col_expire is None:
-                    col_expire = idx
-
-        if col_material is None:
-            continue
-
+                if col_expire is None: col_expire = idx
+        if col_material is None: continue
         data_start = header_row_idx + 2
         for i in range(data_start, len(df_raw)):
             row = df_raw.iloc[i]
             mat = str(row.iloc[col_material]).strip() if col_material is not None else ''
-            if not mat or mat == 'nan' or not re.search(r'\d', mat):
-                continue
-            if any(kw in mat.upper() for kw in ('VOLUME', 'OBSERVAC', 'TOTAL', 'EXEMPLO', 'INFORM', 'PALLET', 'FUMIGATE', 'BOX', 'ISPM')):
-                continue
-            if not re.search(r'\d{4,}', mat) and not re.match(r'^\d+-\d+', mat):
-                continue
-
+            if not mat or mat == 'nan' or not re.search(r'\d', mat): continue
+            if any(kw in mat.upper() for kw in ('VOLUME', 'OBSERVAC', 'TOTAL', 'EXEMPLO', 'INFORM', 'PALLET', 'FUMIGATE', 'BOX', 'ISPM')): continue
+            if not re.search(r'\d{4,}', mat) and not re.match(r'^\d+-\d+', mat): continue
             desc = str(row.iloc[col_desc]).strip() if col_desc is not None and pd.notna(row.iloc[col_desc]) else ''
-            lot  = str(row.iloc[col_lot]).strip()  if col_lot  is not None and pd.notna(row.iloc[col_lot])  else ''
-
+            lot = str(row.iloc[col_lot]).strip() if col_lot is not None and pd.notna(row.iloc[col_lot]) else ''
             expire_raw = row.iloc[col_expire] if col_expire is not None else None
-            if isinstance(expire_raw, datetime):
-                expire_str = expire_raw.strftime('%m/%Y')
-            elif expire_raw is not None and str(expire_raw) != 'nan':
-                expire_str = str(expire_raw).strip()
-            else:
-                expire_str = ''
-
+            if isinstance(expire_raw, datetime): expire_str = expire_raw.strftime('%m/%Y')
+            elif expire_raw is not None and str(expire_raw) != 'nan': expire_str = str(expire_raw).strip()
+            else: expire_str = ''
             cantidades = {}
-            if col_qty_kg is not None:
-                v = row.iloc[col_qty_kg]
-                if pd.notna(v) and str(v).strip() not in ('nan', ''):
-                    try:
-                        cantidades['kg'] = float(v)
-                    except:
-                        pass
-            if col_qty_g is not None:
-                v = row.iloc[col_qty_g]
-                if pd.notna(v) and str(v).strip() not in ('nan', ''):
-                    try:
-                        cantidades['g'] = float(v)
-                    except:
-                        pass
-            if col_qty_un is not None:
-                v = row.iloc[col_qty_un]
-                if pd.notna(v) and str(v).strip() not in ('nan', ''):
-                    try:
-                        cantidades['un'] = float(v)
-                    except:
-                        pass
-
-            items.append({
-                'material':    mat,
-                'descripcion': desc,
-                'lot':         lot,
-                'expire':      expire_str,
-                'cantidades':  cantidades,
-            })
-
+            for tipo, col in [('kg', col_qty_kg), ('g', col_qty_g), ('un', col_qty_un)]:
+                if col is not None:
+                    v = row.iloc[col]
+                    if pd.notna(v) and str(v).strip() not in ('nan', ''):
+                        try: cantidades[tipo] = float(v)
+                        except: pass
+            items.append({'material': mat, 'descripcion': desc, 'lot': lot, 'expire': expire_str, 'cantidades': cantidades})
     return items, invoice
 
-
 def procesar_muestras(items_pl, items_mail):
-    sufijo_map   = {'kg': 'kg',       'g': 'g',       'un': 'un'}
-    col_map      = {'kg': 'Cantidad en KG', 'g': 'Cantidad en gramos', 'un': 'Cantidad en unidades'}
-    nombre_pres  = {'kg': 'kilos',    'g': 'gramos',  'un': 'unidades'}
-
-    mail_dict  = {it['codigo'].strip(): it for it in items_mail}
+    sufijo_map = {'kg': 'kg', 'g': 'g', 'un': 'un'}
+    col_map = {'kg': 'Cantidad en KG', 'g': 'Cantidad en gramos', 'un': 'Cantidad en unidades'}
+    nombre_pres = {'kg': 'kilos', 'g': 'gramos', 'un': 'unidades'}
+    mail_dict = {it['codigo'].strip(): it for it in items_mail}
     codigos_si = {cod for cod, it in mail_dict.items() if it['anmat']}
     codigos_pl = {it['material'] for it in items_pl}
-
     tipos_global = set()
     for item in items_pl:
-        if item['material'] in codigos_si:
-            tipos_global.update(item['cantidades'].keys())
-
+        if item['material'] in codigos_si: tipos_global.update(item['cantidades'].keys())
     un_solo_tipo = len(tipos_global) == 1
-    tipo_unico   = list(tipos_global)[0] if un_solo_tipo else None
+    tipo_unico = list(tipos_global)[0] if un_solo_tipo else None
     col_cantidad_header = col_map.get(tipo_unico, 'Cantidad') if un_solo_tipo else 'Cantidad'
-
     filas = []
     for item in items_pl:
         mat = item['material']
-        if mat not in codigos_si:
-            continue
-
-        mail_item = mail_dict[mat]
-        cantidades = item['cantidades']
+        if mat not in codigos_si: continue
+        mail_item = mail_dict[mat]; cantidades = item['cantidades']
         tipos_item = [t for t in ('kg', 'g', 'un') if t in cantidades]
-
-        if len(tipos_item) == 0:
-            presentacion = ''
-            cantidad_val = ''
+        if len(tipos_item) == 0: presentacion = ''; cantidad_val = ''
         elif len(tipos_item) == 1:
-            t = tipos_item[0]
-            presentacion = nombre_pres[t]
-            v = cantidades[t]
-            if un_solo_tipo:
-                cantidad_val = int(v) if v == int(v) else v
-            else:
-                cantidad_val = f"{int(v) if v == int(v) else v} {sufijo_map[t]}"
+            t = tipos_item[0]; presentacion = nombre_pres[t]; v = cantidades[t]
+            if un_solo_tipo: cantidad_val = int(v) if v == int(v) else v
+            else: cantidad_val = f"{int(v) if v == int(v) else v} {sufijo_map[t]}"
         else:
             presentacion = ' / '.join(nombre_pres[t] for t in tipos_item)
-            partes = []
-            for t in tipos_item:
-                v = cantidades[t]
-                partes.append(f"{int(v) if v == int(v) else v} {sufijo_map[t]}")
+            partes = [f"{int(cantidades[t]) if cantidades[t] == int(cantidades[t]) else cantidades[t]} {sufijo_map[t]}" for t in tipos_item]
             cantidad_val = ' / '.join(partes)
-
-        filas.append({
-            'MATERIAL':                     mat,
-            'descripcion_factura':          item['descripcion'],
-            'Marca y Nombre del producto':  item['descripcion'],
-            'Variedades':                   'N/C',
-            'Presentación':                 presentacion,
-            'Cantidad':                     cantidad_val,
-            'N° de inscripcion':            'N/C',
-            'Lote':                         item['lot'],
-            'Fecha de vencimiento':         item['expire'],
-            'Origen':                       ORIGEN_MUESTRAS,
-            'Fabricante':                   FABRICANTE_MUESTRAS,
-            'Posición Arancelaria':         mail_item['ncm'],
-            '_alertas':           [],
-            '_skip':              False,
-            '_avon':              False,
-            '_necesita_completar': False,
-            '_vencimiento':       None,
-            '_multi_registro':    False,
-            '_expanded':          False,
-        })
-
+        filas.append({'MATERIAL': mat, 'descripcion_factura': item['descripcion'], 'Marca y Nombre del producto': item['descripcion'], 'Variedades': 'N/C', 'Presentación': presentacion, 'Cantidad': cantidad_val, 'N° de inscripcion': 'N/C', 'Lote': item['lot'], 'Fecha de vencimiento': item['expire'], 'Origen': ORIGEN_MUESTRAS, 'Fabricante': FABRICANTE_MUESTRAS, 'Posición Arancelaria': mail_item['ncm'], '_alertas': [], '_skip': False, '_avon': False, '_necesita_completar': False, '_vencimiento': None, '_multi_registro': False, '_expanded': False})
     no_en_pl = [cod for cod in codigos_si if cod not in codigos_pl]
     return filas, no_en_pl, col_cantidad_header
 
-
-COLUMNAS_SALIDA = ['MATERIAL', 'descripcion_factura', 'Marca y Nombre del producto',
-                   'Variedades', 'Presentación', 'Cantidad', 'N° de inscripcion',
-                   'Lote', 'Fecha de vencimiento', 'Origen', 'Fabricante', 'Posición Arancelaria']
+COLUMNAS_SALIDA = ['MATERIAL', 'descripcion_factura', 'Marca y Nombre del producto', 'Variedades', 'Presentación', 'Cantidad', 'N° de inscripcion', 'Lote', 'Fecha de vencimiento', 'Origen', 'Fabricante', 'Posición Arancelaria']
 COLUMNAS_SIN_PRIMERAS = COLUMNAS_SALIDA[2:]
-
-ANCHOS = {'MATERIAL': 14, 'descripcion_factura': 38, 'Marca y Nombre del producto': 48,
-          'Variedades': 14, 'Presentación': 14, 'Cantidad': 14, 'N° de inscripcion': 24,
-          'Lote': 18, 'Fecha de vencimiento': 20, 'Origen': 14, 'Fabricante': 48,
-          'Posición Arancelaria': 22}
-
+ANCHOS = {'MATERIAL': 14, 'descripcion_factura': 38, 'Marca y Nombre del producto': 48, 'Variedades': 14, 'Presentación': 14, 'Cantidad': 14, 'N° de inscripcion': 24, 'Lote': 18, 'Fecha de vencimiento': 20, 'Origen': 14, 'Fabricante': 48, 'Posición Arancelaria': 22}
 LEYENDA_ROTULADO = "será sobrerotulado en depósito con los datos legales exigidos por la normativa Argentina previo a su comercialización."
 
-def escribir_excel_bytes(filas, incluir_primeras_cols=True, col_cantidad_header='Cantidad',
-                         materiales_rotulado=None):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = 'Anexo de Productos'
+def escribir_excel_bytes(filas, incluir_primeras_cols=True, col_cantidad_header='Cantidad', materiales_rotulado=None):
+    wb = Workbook(); ws = wb.active; ws.title = 'Anexo de Productos'
     columnas = COLUMNAS_SALIDA if incluir_primeras_cols else COLUMNAS_SIN_PRIMERAS
-
     ws.merge_cells(f'A1:{get_column_letter(len(columnas))}1')
-    titulo = ws['A1']
-    titulo.value = 'ANEXO DE PRODUCTOS'
-    titulo.font = Font(name='Arial', bold=True, size=11)
-    titulo.alignment = Alignment(horizontal='center', vertical='center')
-    titulo.fill = PatternFill('solid', start_color='D9D9D9')
-
+    titulo = ws['A1']; titulo.value = 'ANEXO DE PRODUCTOS'
+    titulo.font = Font(name='Arial', bold=True, size=11); titulo.alignment = Alignment(horizontal='center', vertical='center'); titulo.fill = PatternFill('solid', start_color='D9D9D9')
     header_fill = PatternFill('solid', start_color='70AD47')
     for col_idx, col_name in enumerate(columnas, 1):
         display_name = col_cantidad_header if col_name == 'Cantidad' else col_name
         cell = ws.cell(row=2, column=col_idx, value=display_name)
-        cell.font = Font(name='Arial', bold=True, size=11, color='FFFFFF')
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-
+        cell.font = Font(name='Arial', bold=True, size=11, color='FFFFFF'); cell.fill = header_fill; cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     alerta_fill = PatternFill('solid', start_color='FFEB9C')
     for row_idx, fila in enumerate(filas, 3):
         tiene_alerta = len(fila.get('_alertas', [])) > 0 or fila.get('_necesita_completar', False)
         for col_idx, col_name in enumerate(columnas, 1):
             val = fila.get(col_name, '')
             if col_name == 'MATERIAL' and val != '':
-                try:
-                    val = int(float(str(val)))
-                except:
-                    pass
+                try: val = int(float(str(val)))
+                except: pass
             if col_name == 'Cantidad' and val != '':
                 if not isinstance(val, str):
                     try:
-                        v = float(val)
-                        val = int(v) if v == int(v) else v
-                    except:
-                        pass
+                        v = float(val); val = int(v) if v == int(v) else v
+                    except: pass
             cell = ws.cell(row=row_idx, column=col_idx, value=val)
-            cell.font = Font(name='Calibri', size=11)
-            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-            if tiene_alerta:
-                cell.fill = alerta_fill
-
-    # ── Leyenda de Rotulado ──
+            cell.font = Font(name='Calibri', size=11); cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            if tiene_alerta: cell.fill = alerta_fill
     if materiales_rotulado:
-        ultima_fila_datos = len(filas) + 2  # fila título (1) + fila headers (2) + datos
-        fila_vacia = ultima_fila_datos + 1
-        fila_leyenda = ultima_fila_datos + 2
-
-        # Determinar columna D (índice 4 en 1-based si incluye primeras cols, o 2 si no)
-        if incluir_primeras_cols:
-            col_leyenda_idx = 4  # columna D = Cantidad
-        else:
-            col_leyenda_idx = 2  # ajuste si no tiene las primeras cols
-
+        ultima_fila_datos = len(filas) + 2; fila_leyenda = ultima_fila_datos + 2
+        col_leyenda_idx = 4 if incluir_primeras_cols else 2
         mats_str = ', '.join(str(m) for m in materiales_rotulado)
         texto_leyenda = f"Material {mats_str}: {LEYENDA_ROTULADO}"
-
-        # Merge desde col_leyenda_idx hasta el final
-        col_inicio_letter = get_column_letter(col_leyenda_idx)
-        col_fin_letter = get_column_letter(len(columnas))
+        col_inicio_letter = get_column_letter(col_leyenda_idx); col_fin_letter = get_column_letter(len(columnas))
         ws.merge_cells(f'{col_inicio_letter}{fila_leyenda}:{col_fin_letter}{fila_leyenda}')
-
         cell_leyenda = ws.cell(row=fila_leyenda, column=col_leyenda_idx, value=texto_leyenda)
-        cell_leyenda.font = Font(name='Calibri', size=10, bold=True)
-        cell_leyenda.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-        ws.row_dimensions[fila_leyenda].height = 30
-
+        cell_leyenda.font = Font(name='Calibri', size=10, bold=True); cell_leyenda.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True); ws.row_dimensions[fila_leyenda].height = 30
     for col_idx, col_name in enumerate(columnas, 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = ANCHOS.get(col_name, 15)
-
-    ws.row_dimensions[1].height = 22
-    ws.row_dimensions[2].height = 40
-    ws.freeze_panes = 'A3'
-
+    ws.row_dimensions[1].height = 22; ws.row_dimensions[2].height = 40; ws.freeze_panes = 'A3'
     if not incluir_primeras_cols:
-        ws.page_setup.orientation = 'landscape'
-        ws.page_setup.fitToPage = True
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 0
+        ws.page_setup.orientation = 'landscape'; ws.page_setup.fitToPage = True; ws.page_setup.fitToWidth = 1; ws.page_setup.fitToHeight = 0
         ws.page_margins = PageMargins(left=0.3, right=0.3, top=0.5, bottom=0.5)
-
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf.getvalue()
+    buf = BytesIO(); wb.save(buf); buf.seek(0); return buf.getvalue()
 
 def excel_a_pdf_bytes(excel_bytes, nombre_base):
     try:
@@ -1356,558 +857,107 @@ def excel_a_pdf_bytes(excel_bytes, nombre_base):
         from reportlab.lib import colors
         from reportlab.lib.units import cm
         from reportlab.lib.enums import TA_CENTER, TA_LEFT
-
-        wb = load_workbook(BytesIO(excel_bytes))
-        ws = wb.active
-
+        wb = load_workbook(BytesIO(excel_bytes)); ws = wb.active
         style_normal = ParagraphStyle('normal', fontSize=6.5, leading=8, alignment=TA_CENTER)
-        style_header = ParagraphStyle('header', fontSize=7, leading=9, alignment=TA_CENTER,
-                                       textColor=colors.white, fontName='Helvetica-Bold')
-        style_title  = ParagraphStyle('title',  fontSize=8, leading=10, alignment=TA_CENTER,
-                                       fontName='Helvetica-Bold')
-        style_leyenda = ParagraphStyle('leyenda', fontSize=7, leading=9, alignment=TA_LEFT,
-                                        fontName='Helvetica-Bold')
-
+        style_header = ParagraphStyle('header', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.white, fontName='Helvetica-Bold')
+        style_title = ParagraphStyle('title', fontSize=8, leading=10, alignment=TA_CENTER, fontName='Helvetica-Bold')
+        style_leyenda = ParagraphStyle('leyenda', fontSize=7, leading=9, alignment=TA_LEFT, fontName='Helvetica-Bold')
         ancho_total = landscape(A4)[0] - 1.4*cm
         pesos = [4.0, 1.4, 1.4, 1.2, 2.2, 1.4, 1.8, 1.2, 3.8, 2.0]
-        total_pesos = sum(pesos)
-        col_widths = [ancho_total * p / total_pesos for p in pesos]
-
+        total_pesos = sum(pesos); col_widths = [ancho_total * p / total_pesos for p in pesos]
         def safe_para(val, style):
             try:
                 txt = str(val) if val is not None else ''
                 txt = txt.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 return Paragraph(txt, style)
-            except:
-                return Paragraph('', style)
-
+            except: return Paragraph('', style)
         data = []
         for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
-            if row_idx == 0:
-                data.append([safe_para(row[0], style_title)] + ['' for _ in range(len(pesos)-1)])
+            if row_idx == 0: data.append([safe_para(row[0], style_title)] + ['' for _ in range(len(pesos)-1)])
             elif row_idx == 1:
                 cells = list(row)
                 while len(cells) < len(pesos): cells.append('')
-                cells = cells[:len(pesos)]
-                data.append([safe_para(c, style_header) for c in cells])
+                cells = cells[:len(pesos)]; data.append([safe_para(c, style_header) for c in cells])
             else:
-                cells = list(row)
-                # Detectar si es fila de leyenda (celda de leyenda contiene el texto de rotulado)
-                fila_str = ' '.join(str(c) for c in cells if c)
+                cells = list(row); fila_str = ' '.join(str(c) for c in cells if c)
                 if LEYENDA_ROTULADO[:20] in fila_str:
-                    # Fila de leyenda: span completo
                     texto_leyenda = next((str(c) for c in cells if c and LEYENDA_ROTULADO[:20] in str(c)), '')
-                    leyenda_row = [safe_para(texto_leyenda, style_leyenda)] + ['' for _ in range(len(pesos)-1)]
-                    data.append(leyenda_row)
+                    data.append([safe_para(texto_leyenda, style_leyenda)] + ['' for _ in range(len(pesos)-1)])
                 else:
                     while len(cells) < len(pesos): cells.append('')
-                    cells = cells[:len(pesos)]
-                    data.append([safe_para(c, style_normal) for c in cells])
-
-        if not data:
-            return None
-
+                    cells = cells[:len(pesos)]; data.append([safe_para(c, style_normal) for c in cells])
+        if not data: return None
         buf = BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
-                                leftMargin=0.7*cm, rightMargin=0.7*cm,
-                                topMargin=0.8*cm, bottomMargin=0.8*cm)
+        doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=0.7*cm, rightMargin=0.7*cm, topMargin=0.8*cm, bottomMargin=0.8*cm)
         table = Table(data, colWidths=col_widths, repeatRows=2)
-
-        # Span para leyenda si existe
         n_filas = len(data)
-        style_cmds = [
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#D9D9D9')),
-            ('SPAN',       (0,0), (-1,0)),
-            ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#70AD47')),
-            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
-            ('GRID',       (0,0), (-1,-1), 0.3, colors.HexColor('#CCCCCC')),
-            ('ROWBACKGROUNDS', (0,2), (-1,-1), [colors.white, colors.HexColor('#F7F7F7')]),
-            ('LEFTPADDING',   (0,0), (-1,-1), 3),
-            ('RIGHTPADDING',  (0,0), (-1,-1), 3),
-            ('TOPPADDING',    (0,0), (-1,-1), 2),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ]
-        # Si la última fila es la leyenda, hacer span
+        style_cmds = [('BACKGROUND', (0,0), (-1,0), colors.HexColor('#D9D9D9')), ('SPAN', (0,0), (-1,0)), ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#70AD47')), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('GRID', (0,0), (-1,-1), 0.3, colors.HexColor('#CCCCCC')), ('ROWBACKGROUNDS', (0,2), (-1,-1), [colors.white, colors.HexColor('#F7F7F7')]), ('LEFTPADDING', (0,0), (-1,-1), 3), ('RIGHTPADDING', (0,0), (-1,-1), 3), ('TOPPADDING', (0,0), (-1,-1), 2), ('BOTTOMPADDING', (0,0), (-1,-1), 2)]
         if n_filas > 2:
-            last_row = data[-1]
-            fila_str_last = str(last_row[0]) if last_row else ''
+            last_row = data[-1]; fila_str_last = str(last_row[0]) if last_row else ''
             if LEYENDA_ROTULADO[:15] in fila_str_last or 'sobrerotulado' in fila_str_last:
-                style_cmds.append(('SPAN', (0, n_filas-1), (-1, n_filas-1)))
-                style_cmds.append(('ALIGN', (0, n_filas-1), (-1, n_filas-1), 'LEFT'))
-
-        table.setStyle(TableStyle(style_cmds))
-        doc.build([table])
-        buf.seek(0)
-        return buf.getvalue()
+                style_cmds.append(('SPAN', (0, n_filas-1), (-1, n_filas-1))); style_cmds.append(('ALIGN', (0, n_filas-1), (-1, n_filas-1), 'LEFT'))
+        table.setStyle(TableStyle(style_cmds)); doc.build([table]); buf.seek(0); return buf.getvalue()
     except Exception as e:
-        print(f'PDF error: {e}')
-        return None
+        print(f'PDF error: {e}'); return None
 
 def generar_zip(grupos, invoice, col_cantidad_header='Cantidad', materiales_rotulado=None):
     buf = BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for nombre, filas in grupos:
-            if not filas:
-                continue
+            if not filas: continue
             nombre_base = f'ANEXO_{nombre}_{invoice}'
-            xls_completo = escribir_excel_bytes(filas, incluir_primeras_cols=True,
-                                                col_cantidad_header=col_cantidad_header,
-                                                materiales_rotulado=materiales_rotulado)
+            xls_completo = escribir_excel_bytes(filas, incluir_primeras_cols=True, col_cantidad_header=col_cantidad_header, materiales_rotulado=materiales_rotulado)
             zf.writestr(f'{nombre_base}.xlsx', xls_completo)
-            xls_sin = escribir_excel_bytes(filas, incluir_primeras_cols=False,
-                                           col_cantidad_header=col_cantidad_header,
-                                           materiales_rotulado=materiales_rotulado)
+            xls_sin = escribir_excel_bytes(filas, incluir_primeras_cols=False, col_cantidad_header=col_cantidad_header, materiales_rotulado=materiales_rotulado)
             zf.writestr(f'{nombre_base}_SIN_MAT.xlsx', xls_sin)
             pdf = excel_a_pdf_bytes(xls_sin, f'{nombre_base}_SIN_MAT')
-            if pdf:
-                zf.writestr(f'{nombre_base}_SIN_MAT.pdf', pdf)
-    buf.seek(0)
-    return buf.getvalue()
-
-# ═══════════════════════════════════════════════════════════
-# FUNCIONES FIABILA
-# ═══════════════════════════════════════════════════════════
-
-def parsear_coa_pdf(file_bytes):
-    """
-    Extrae Batch, Expired date y Customer Code de un COA PDF de Fiabila.
-    Retorna dict: {'batch': str, 'expired': str (MM/YYYY), 'customer_code': str} o None
-    """
-    try:
-        import pdfplumber
-    except ImportError:
-        return None, "pdfplumber no disponible"
-
-    texto = ''
-    with pdfplumber.open(BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            texto += (page.extract_text() or '') + '\n'
-
-    resultado = {}
-
-    # Batch
-    m = re.search(r'Batch\s*:\s*([^\s]+)', texto, re.IGNORECASE)
-    if m:
-        resultado['batch'] = m.group(1).strip()
-
-    # Expired date — formato "09 Apr 29" o "09 Apr 2029"
-    m = re.search(r'Expired\s+date\s*:\s*(\d{1,2}\s+\w{3}\s+\d{2,4})', texto, re.IGNORECASE)
-    if m:
-        fecha_str = m.group(1).strip()
-        try:
-            # Intentar parsear "09 Apr 29" o "09 Apr 2029"
-            for fmt in ('%d %b %y', '%d %b %Y'):
-                try:
-                    fecha = datetime.strptime(fecha_str, fmt)
-                    resultado['expired'] = f"{fecha.month:02d}/{fecha.year}"
-                    break
-                except:
-                    pass
-        except:
-            resultado['expired'] = fecha_str
-
-    # Customer Code — formato "Descripcion /1-XXXXX" en Customer Shade
-    m = re.search(r'Customer\s+Shade\s*:,?\s*(.+?)/(1-\d+)', texto, re.IGNORECASE)
-    if m:
-        resultado['customer_code'] = m.group(2).strip()
-        resultado['shade_desc'] = m.group(1).strip()
-    else:
-        # Fallback: buscar patrón 1-XXXXX en el texto
-        m = re.search(r'(1-\d{4,})', texto)
-        if m:
-            resultado['customer_code'] = m.group(1).strip()
-
-    if not resultado:
-        return None, "No se pudo extraer información del COA"
-
-    return resultado, None
-
-
-def cargar_pl_fiabila(file_bytes):
-    """
-    Lee el Excel de Fiabila (Invoice + PL).
-    Retorna:
-      - invoice_rows: dict {customer_code: cantidad_kg} desde hoja Invoice
-      - pl_rows: list de dicts {customer_code, descripcion, lote_batch, cantidad_kg}
-      - invoice_number: str
-    """
-    with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
-        f.write(file_bytes)
-        tmp = f.name
-
-    xl = pd.ExcelFile(tmp)
-    invoice_rows = {}
-    pl_rows = []
-    invoice_number = None
-
-    for sh in xl.sheet_names:
-        sh_upper = sh.upper()
-        df = pd.read_excel(tmp, sheet_name=sh, header=None)
-
-        # ── Extraer invoice number ──
-        if invoice_number is None:
-            for i in range(min(5, len(df))):
-                for v in df.iloc[i].values:
-                    s = str(v)
-                    m = re.search(r'invoice\s*(?:number)?[:\s]+([^\s]+)', s, re.IGNORECASE)
-                    if m:
-                        invoice_number = m.group(1).strip()
-                        break
-                if invoice_number:
-                    break
-
-        # ── Hoja Invoice: una línea por producto, cantidad total ──
-        if 'INVOICE' in sh_upper and 'PL' not in sh_upper:
-            # Buscar header
-            header_row = None
-            for i, row in df.iterrows():
-                row_str = ' '.join(str(v).upper() for v in row.values if pd.notna(v))
-                if 'CUSTOMER CODE' in row_str or 'CUSTOMER  CODE' in row_str:
-                    header_row = i
-                    break
-            if header_row is None:
-                continue
-            headers = [str(v).strip().upper() if pd.notna(v) else '' for v in df.iloc[header_row].values]
-
-            col_code = col_qty = col_desc = None
-            for idx, h in enumerate(headers):
-                if 'CUSTOMER CODE' in h and col_code is None:
-                    col_code = idx
-                if any(k in h for k in ['QUANTITY KG', 'QTY KG', 'QUANTITY', 'KG']) and 'GROSS' not in h and col_qty is None:
-                    col_qty = idx
-                if any(k in h for k in ['DESCRIPTION', 'DESCRIP']) and col_desc is None:
-                    col_desc = idx
-
-            if col_code is None:
-                continue
-
-            for i in range(header_row + 1, len(df)):
-                row = df.iloc[i]
-                cod = str(row.iloc[col_code]).strip() if pd.notna(row.iloc[col_code]) else ''
-                if not re.match(r'^\d+-\d+', cod):
-                    continue
-                qty = None
-                if col_qty is not None and pd.notna(row.iloc[col_qty]):
-                    try:
-                        qty = float(row.iloc[col_qty])
-                    except:
-                        pass
-                desc = str(row.iloc[col_desc]).strip() if col_desc and pd.notna(row.iloc[col_desc]) else ''
-                invoice_rows[cod] = {'cantidad': qty, 'descripcion': desc}
-
-        # ── Hoja PL: puede tener múltiples filas por producto (distintos lotes) ──
-        elif 'PL' in sh_upper:
-            header_row = None
-            for i, row in df.iterrows():
-                row_str = ' '.join(str(v).upper() for v in row.values if pd.notna(v))
-                if 'CUSTOMER CODE' in row_str or 'BATCH' in row_str:
-                    header_row = i
-                    break
-            if header_row is None:
-                continue
-            headers = [str(v).strip().upper() if pd.notna(v) else '' for v in df.iloc[header_row].values]
-
-            col_code = col_batch = col_desc = col_qty = None
-            for idx, h in enumerate(headers):
-                if 'CUSTOMER CODE' in h and col_code is None:
-                    col_code = idx
-                if 'BATCH' in h and col_batch is None:
-                    col_batch = idx
-                if any(k in h for k in ['DESCRIPTION', 'DESCRIP']) and col_desc is None:
-                    col_desc = idx
-                if any(k in h for k in ['TOTAL NET WEIGHT', 'NET WEIGHT']) and col_qty is None:
-                    col_qty = idx
-
-            if col_code is None:
-                continue
-
-            for i in range(header_row + 1, len(df)):
-                row = df.iloc[i]
-                cod = str(row.iloc[col_code]).strip() if pd.notna(row.iloc[col_code]) else ''
-                if not re.match(r'^\d+-\d+', cod):
-                    continue
-                batch = str(row.iloc[col_batch]).strip() if col_batch is not None and pd.notna(row.iloc[col_batch]) else ''
-                desc = str(row.iloc[col_desc]).strip() if col_desc is not None and pd.notna(row.iloc[col_desc]) else ''
-                qty = None
-                if col_qty is not None and pd.notna(row.iloc[col_qty]):
-                    try:
-                        qty = float(row.iloc[col_qty])
-                    except:
-                        pass
-                pl_rows.append({'customer_code': cod, 'batch': batch, 'descripcion': desc, 'cantidad': qty})
-
-    return invoice_rows, pl_rows, invoice_number
-
-
-def procesar_fiabila(invoice_rows, pl_rows, coas, df_avon, df_fab, df_ncm):
-    """
-    Cruza Invoice + PL + COAs + bases ANMAT/Avon para generar filas del Anexo.
-    Lógica de cantidad:
-      - Si un customer_code tiene un solo lote en el PL → usa cantidad de Invoice
-      - Si tiene múltiples lotes distintos → una línea por lote con cantidad del PL
-    """
-    filas = []
-    alertas = []
-
-    # Agrupar PL por customer_code → lotes
-    from collections import defaultdict
-    pl_por_codigo = defaultdict(list)
-    for row in pl_rows:
-        pl_por_codigo[row['customer_code']].append(row)
-
-    for cod, inv_data in invoice_rows.items():
-        avon_row = buscar_avon(cod, df_avon)
-        if avon_row is None:
-            alertas.append(f"⚠️ {cod} — no encontrado en Registros Avon")
-            continue
-
-        def _get_avon(row, variantes, default=''):
-            for v in variantes:
-                val = row.get(v)
-                if val is not None and str(val).strip() not in ('', 'nan'):
-                    return str(val).strip()
-            for k in row.index:
-                k_norm = str(k).strip().lower().replace(' ','').replace('/','').replace('\n','')
-                for v in variantes:
-                    v_norm = v.strip().lower().replace(' ','').replace('/','').replace('\n','')
-                    if k_norm == v_norm:
-                        s = str(row[k]).strip()
-                        if s and s != 'nan':
-                            return s
-            return default
-
-        nombre = _get_avon(avon_row, ['NOMBRE DE REGISTRO DE PRODUCTO', 'NOMBRE REGISTRO'])
-        contenido = _get_avon(avon_row, ['CONTENIDO LEGAL', 'CONTENIDO'])
-        registro = _get_avon(avon_row, [
-            'Reg. SP   (Trámite#)\nARGENTINA NATURA',
-            'Reg. SP   (Trámite#)\nNATURA ARG',
-            'Reg. SP (Trámite#)\nARGENTINA NATURA',
-            'Reg. SP   (Tramite#)\nARGENTINA NATURA',
-            'Reg. SP   (Trámite#)\nNATURA ARGENTINA',
-        ])
-        elaborador = _get_avon(avon_row, ['ELABORADOR (ORIGEN)', 'ELABORADOR'])
-
-        # Fabricante: para Fiabila buscar por keyword 'fiabila' en tabla si el match normal falla
-        fab, alerta_fab, fab_row = buscar_fabricante(elaborador, cod, df_fab)
-        if alerta_fab:
-            alertas.append(alerta_fab)
-
-        ncm, alerta_ncm = buscar_ncm(cod, df_ncm)
-        if alerta_ncm:
-            alertas.append(alerta_ncm)
-
-        # Origen — extraer país desde la fila de Fabricantes que matcheó
-        origen = ''
-        alerta_origen_cod = None
-        if fab_row is not None:
-            pais, paises_encontrados = extraer_origen_de_fila_fab(fab_row)
-            if len(paises_encontrados) == 0:
-                alerta_origen_cod = f"⚠️ {cod} — no se encontró país de origen en Fabricantes. Completar manualmente."
-            elif len(paises_encontrados) > 1:
-                alerta_origen_cod = f"⚠️ {cod} — origen ambiguo: {', '.join(paises_encontrados)}. Indicar cuál corresponde."
-            else:
-                origen = pais
-        elif not alerta_fab:
-            alerta_origen_cod = f"⚠️ {cod} — fabricante no encontrado, no se puede determinar origen."
-
-        if alerta_origen_cod:
-            alertas.append(alerta_origen_cod)
-
-        # Determinar lotes del PL
-        pl_filas = pl_por_codigo.get(cod, [])
-        lotes_unicos = list({r['batch']: r for r in pl_filas}.values())
-
-        # Buscar COA para cada lote
-        coa_por_batch = {c['batch']: c for c in coas if 'batch' in c and c.get('customer_code') == cod}
-
-        if len(lotes_unicos) <= 1:
-            # Un solo lote → cantidad de Invoice
-            batch = lotes_unicos[0]['batch'] if lotes_unicos else ''
-            coa = coa_por_batch.get(batch, {})
-            expired = coa.get('expired', '')
-            if not expired:
-                alertas.append(f"⚠️ {cod} — no se encontró COA para batch {batch}")
-            cantidad = inv_data.get('cantidad', '')
-            desc = inv_data.get('descripcion', '') or (lotes_unicos[0]['descripcion'] if lotes_unicos else '')
-
-            filas.append({
-                'MATERIAL': cod,
-                'descripcion_factura': desc,
-                'Marca y Nombre del producto': nombre,
-                'Variedades': '',
-                'Presentación': contenido,
-                'Cantidad': cantidad,
-                'N° de inscripcion': registro,
-                'Lote': batch,
-                'Fecha de vencimiento': expired,
-                'Origen': origen,
-                'Fabricante': fab or '',
-                'Posición Arancelaria': ncm or '',
-                '_alertas': [alerta_origen_cod] if alerta_origen_cod else [],
-                '_skip': False, '_avon': False,
-                '_necesita_completar': bool(alerta_origen_cod),
-                '_vencimiento': None, '_multi_registro': False, '_expanded': False,
-                '_origen_ambiguo': alerta_origen_cod is not None,
-                '_paises_encontrados': paises_encontrados if alerta_origen_cod else [],
-            })
-        else:
-            # Múltiples lotes → una línea por lote con cantidad del PL
-            for lote_row in lotes_unicos:
-                batch = lote_row['batch']
-                coa = coa_por_batch.get(batch, {})
-                expired = coa.get('expired', '')
-                if not expired:
-                    alertas.append(f"⚠️ {cod} — no se encontró COA para batch {batch}")
-                cantidad_lote = sum(
-                    r['cantidad'] for r in pl_filas
-                    if r['batch'] == batch and r['cantidad'] is not None
-                )
-                desc = inv_data.get('descripcion', '') or lote_row['descripcion']
-
-                filas.append({
-                    'MATERIAL': cod,
-                    'descripcion_factura': desc,
-                    'Marca y Nombre del producto': nombre,
-                    'Variedades': '',
-                    'Presentación': contenido,
-                    'Cantidad': cantidad_lote if cantidad_lote else '',
-                    'N° de inscripcion': registro,
-                    'Lote': batch,
-                    'Fecha de vencimiento': expired,
-                    'Origen': origen,
-                    'Fabricante': fab or '',
-                    'Posición Arancelaria': ncm or '',
-                    '_alertas': [alerta_origen_cod] if alerta_origen_cod else [],
-                    '_skip': False, '_avon': False,
-                    '_necesita_completar': bool(alerta_origen_cod),
-                    '_vencimiento': None, '_multi_registro': False, '_expanded': False,
-                    '_origen_ambiguo': alerta_origen_cod is not None,
-                    '_paises_encontrados': paises_encontrados if alerta_origen_cod else [],
-                })
-
-    return filas, alertas
-
-
+            if pdf: zf.writestr(f'{nombre_base}_SIN_MAT.pdf', pdf)
+    buf.seek(0); return buf.getvalue()
 
 # SESSION STATE
-defaults = {
-    'filas_procesadas':        None,
-    'alertas_excluir':         [],
-    'alertas_avon':            [],
-    'alertas_generales':       [],
-    'invoice':                 None,
-    'excluidos':               set(),
-    'alerta_origen_proveedor':  None,
-    'datos_avon_completados':  {},
-    'df_avon_editable':        None,
-    '_avon_init_invoice':      None,
-    'filas_muestras':          None,
-    'invoice_muestras':        None,
-    'alertas_muestras':        [],
-    'col_cantidad_muestras':   'Cantidad',
-    'fiabila_coas':            [],
-    # Equivalentes: dict {material: {'codigo': str, 'datos': dict|None, 'fuente': str|None, 'error': str|None}}
-    'equivalentes':            {},
-    # Rotulado
-    'rotulado_activo':         False,
-    'materiales_rotulado':     [],
-    # Cache de bases para búsqueda de equivalentes
-    '_df_anmat_cache':         None,
-    '_df_avon_cache':          None,
-    '_df_fab_cache':           None,
-    '_df_ncm_cache':           None,
-}
+defaults = {'filas_procesadas': None, 'alertas_excluir': [], 'alertas_avon': [], 'alertas_generales': [], 'invoice': None, 'excluidos': set(), 'alerta_origen_proveedor': None, 'datos_avon_completados': {}, 'df_avon_editable': None, '_avon_init_invoice': None, 'filas_muestras': None, 'invoice_muestras': None, 'alertas_muestras': [], 'col_cantidad_muestras': 'Cantidad', 'fiabila_coas': [], 'equivalentes': {}, 'rotulado_activo': False, 'materiales_rotulado': [], '_df_anmat_cache': None, '_df_avon_cache': None, '_df_fab_cache': None, '_df_ncm_cache': None}
 for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+    if k not in st.session_state: st.session_state[k] = v
 
-# PASO 0: SELECCIÓN DE MODO
 st.markdown('<div class="card"><h3><span class="step-badge">0</span>Tipo de operación</h3>', unsafe_allow_html=True)
-modo = st.radio(
-    "¿Qué tipo de operación es?",
-    options=["Operación normal", "Muestras Natura", "Fiabila"],
-    horizontal=True,
-    key='p6_modo_radio'
-)
+modo = st.radio("¿Qué tipo de operación es?", options=["Operación normal", "Muestras Natura", "Fiabila"], horizontal=True, key='p6_modo_radio')
 st.markdown('</div>', unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════
-# RAMA A: MUESTRAS NATURA
-# ═══════════════════════════════════════════════════════════
 if modo == "Muestras Natura":
-
-    st.markdown('<div class="modo-muestras">🧪 Modo Muestras Natura — se generará el Anexo solo para los ítems con ANMAT = Sí del mail de clasificación. NCM, origen y fabricante se toman automáticamente.</div>', unsafe_allow_html=True)
-
+    st.markdown('<div class="modo-muestras">🧪 Modo Muestras Natura</div>', unsafe_allow_html=True)
     st.markdown('<div class="card"><h3><span class="step-badge">1</span>Archivos de la operación</h3>', unsafe_allow_html=True)
     st.markdown("**📌 Número de referencia de la operación**")
-    nro_ref_m = st.text_input("", placeholder="ej: MN014-26", label_visibility="collapsed", key='p6_nro_ref_muestras')
-
+    nro_ref_m = st.text_input("Número de referencia muestras", placeholder="ej: MN014-26", label_visibility="collapsed", key='p6_nro_ref_muestras')
     col1, col2 = st.columns(2)
-    with col1:
-        f_pl_m = st.file_uploader("📦 Packing List / Invoice (.xlsx)", type=['xlsx'], key='p6_pl_muestras')
-    with col2:
-        f_msg  = st.file_uploader("📧 Clasificación ANMAT (.msg ó .xlsx)", type=['msg', 'xlsx'], key='p6_msg_muestras')
+    with col1: f_pl_m = st.file_uploader("📦 Packing List / Invoice (.xlsx)", type=['xlsx'], key='p6_pl_muestras')
+    with col2: f_msg = st.file_uploader("📧 Clasificación ANMAT (.msg ó .xlsx)", type=['msg', 'xlsx'], key='p6_msg_muestras')
     st.markdown('</div>', unsafe_allow_html=True)
-
     if f_pl_m and f_msg:
         st.markdown('<div class="card"><h3><span class="step-badge">2</span>Procesar</h3>', unsafe_allow_html=True)
         if st.button("⚙️ Analizar y procesar muestras", key='p6_btn_procesar_muestras'):
             with st.spinner('Procesando...'):
                 try:
-                    if f_msg.name.lower().endswith('.xlsx'):
-                        items_mail, err_mail = cargar_clasificacion_excel(f_msg.read())
-                    else:
-                        items_mail, err_mail = parsear_msg(f_msg.read())
-                    if err_mail:
-                        st.error(f"Error al leer la clasificación: {err_mail}")
-                        st.stop()
-
+                    if f_msg.name.lower().endswith('.xlsx'): items_mail, err_mail = cargar_clasificacion_excel(f_msg.read())
+                    else: items_mail, err_mail = parsear_msg(f_msg.read())
+                    if err_mail: st.error(f"Error al leer la clasificación: {err_mail}"); st.stop()
                     items_pl, invoice_m = cargar_pl_muestras(f_pl_m.read())
-                    if not items_pl:
-                        st.error("No se encontraron ítems en el Packing List.")
-                        st.stop()
-
+                    if not items_pl: st.error("No se encontraron ítems en el Packing List."); st.stop()
                     filas_m, no_en_pl, col_cant_hdr = procesar_muestras(items_pl, items_mail)
-
-                    alertas_m = []
-                    for cod in no_en_pl:
-                        alertas_m.append(f"⚠️ Código {cod} tiene ANMAT=Sí en el mail pero no se encontró en el Packing List.")
-
-                    st.session_state.filas_muestras        = filas_m
-                    st.session_state.invoice_muestras      = invoice_m
-                    st.session_state.alertas_muestras      = alertas_m
-                    st.session_state.col_cantidad_muestras = col_cant_hdr
-
+                    alertas_m = [f"⚠️ Código {cod} tiene ANMAT=Sí en el mail pero no se encontró en el Packing List." for cod in no_en_pl]
+                    st.session_state.filas_muestras = filas_m; st.session_state.invoice_muestras = invoice_m; st.session_state.alertas_muestras = alertas_m; st.session_state.col_cantidad_muestras = col_cant_hdr
                 except Exception as e:
-                    import traceback
-                    st.error(f"Error al procesar: {e}")
-                    st.text(traceback.format_exc())
+                    import traceback; st.error(f"Error al procesar: {e}"); st.text(traceback.format_exc())
         st.markdown('</div>', unsafe_allow_html=True)
-
     if st.session_state.filas_muestras is not None:
-        filas_m   = st.session_state.filas_muestras
-        invoice_m = st.session_state.invoice_muestras
-
+        filas_m = st.session_state.filas_muestras; invoice_m = st.session_state.invoice_muestras
         col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f'<div class="stat-card"><div class="number">{len(filas_m)}</div><div class="label">Ítems con ANMAT = Sí</div></div>', unsafe_allow_html=True)
-        with col2:
-            st.markdown(f'<div class="stat-card"><div class="number" style="color:#00c896">{len(filas_m)}</div><div class="label">Líneas en el Anexo</div></div>', unsafe_allow_html=True)
-
+        with col1: st.markdown(f'<div class="stat-card"><div class="number">{len(filas_m)}</div><div class="label">Ítems con ANMAT = Sí</div></div>', unsafe_allow_html=True)
+        with col2: st.markdown(f'<div class="stat-card"><div class="number" style="color:#00c896">{len(filas_m)}</div><div class="label">Líneas en el Anexo</div></div>', unsafe_allow_html=True)
         st.markdown('<br>', unsafe_allow_html=True)
-
         if st.session_state.alertas_muestras:
             st.markdown('<div class="card"><h3>⚠️ Alertas</h3>', unsafe_allow_html=True)
-            for a in st.session_state.alertas_muestras:
-                st.markdown(f'<div class="alert-box">{a}</div>', unsafe_allow_html=True)
+            for a in st.session_state.alertas_muestras: st.markdown(f'<div class="alert-box">{a}</div>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
-
-        with st.expander("👁️ Vista previa del Anexo de Muestras"):
-            cols_preview = ['MATERIAL', 'Marca y Nombre del producto', 'Presentación',
-                            'Cantidad', 'Lote', 'Fecha de vencimiento', 'Posición Arancelaria']
-            st.dataframe(pd.DataFrame([{c: f.get(c,'') for c in cols_preview} for f in filas_m]),
-                         use_container_width=True)
-
         st.markdown('<div class="card"><h3><span class="step-badge">4</span>Generar Anexo de Muestras</h3>', unsafe_allow_html=True)
         if st.button("📄 Generar Anexo de Muestras", key='p6_btn_generar_muestras'):
             with st.spinner('Generando archivos...'):
@@ -1915,499 +965,87 @@ if modo == "Muestras Natura":
                 col_hdr = st.session_state.get('col_cantidad_muestras', 'Cantidad')
                 zip_bytes = generar_zip([('MUESTRAS', filas_m)], ref, col_cantidad_header=col_hdr)
                 st.markdown('<div class="success-box">✅ Anexo de Muestras generado correctamente</div>', unsafe_allow_html=True)
-                st.markdown(f"**MUESTRAS**: {len(filas_m)} ítems")
-                st.download_button(
-                    label="⬇️ Descargar Anexo de Muestras (ZIP)",
-                    data=zip_bytes,
-                    file_name=f"ANEXO_MUESTRAS_{ref}.zip",
-                    mime="application/zip",
-                    key='p6_dl_zip_muestras'
-                )
+                st.download_button(label="⬇️ Descargar Anexo de Muestras (ZIP)", data=zip_bytes, file_name=f"ANEXO_MUESTRAS_{ref}.zip", mime="application/zip", key='p6_dl_zip_muestras')
         st.markdown('</div>', unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════
-# RAMA B: OPERACIÓN NORMAL + FIABILA
-# ═══════════════════════════════════════════════════════════
 elif modo in ("Operación normal", "Fiabila"):
-
     st.markdown('<div class="card"><h3><span class="step-badge">1</span>Archivos de la operación</h3>', unsafe_allow_html=True)
-
-    if modo == "Fiabila":
-        st.markdown('<div class="modo-muestras" style="border-color:#9b59b6;background:linear-gradient(135deg,#f5eef8,#e8daef);margin-bottom:12px;">🧪 Modo Fiabila — lote y vencimiento se extraen de los COA. El PL debe tener solapas Invoice + PL.</div>', unsafe_allow_html=True)
-
     st.markdown("**📌 Número de referencia de la operación**")
-    nro_referencia = st.text_input("", placeholder="ej: 4550595912", label_visibility="collapsed")
-
+    nro_referencia = st.text_input("Número de referencia", placeholder="ej: 4550595912", label_visibility="collapsed")
     st.markdown("**🏷️ Rotulado**")
-    rotulado_opcion = st.radio(
-        "¿Algún artículo tiene rotulado?",
-        options=["No", "Sí"],
-        horizontal=True,
-        key='p6_rotulado_radio'
-    )
+    rotulado_opcion = st.radio("¿Algún artículo tiene rotulado?", options=["No", "Sí"], horizontal=True, key='p6_rotulado_radio')
     st.session_state.rotulado_activo = (rotulado_opcion == "Sí")
-
     col1, col2 = st.columns(2)
     with col1:
-        f_pl    = st.file_uploader("📦 Packing List",                  type=['xlsx'],        key='p6_pl')
-        f_prox  = st.file_uploader("📅 Próximas Importaciones",        type=['xlsx', 'pdf'], key='p6_prox')
-        f_anmat = st.file_uploader("🏥 Registro ANMAT Histórico",      type=['xlsb','xlsx'], key='p6_anmat')
+        f_pl = st.file_uploader("📦 Packing List", type=['xlsx'], key='p6_pl')
+        f_prox = st.file_uploader("📅 Próximas Importaciones", type=['xlsx', 'pdf'], key='p6_prox')
+        f_anmat = st.file_uploader("🏥 Registro ANMAT Histórico", type=['xlsb','xlsx'], key='p6_anmat')
     with col2:
-        f_avon  = st.file_uploader("🌸 Registros Avon",               type=['xlsx'],        key='p6_avon')
-        f_fab   = st.file_uploader("🏭 Fabricantes",                   type=['xls','xlsx'],  key='p6_fab')
-        f_ncm   = st.file_uploader("📊 Catálogo NCM",                  type=['xlsx'],        key='p6_ncm')
-
+        f_avon = st.file_uploader("🌸 Registros Avon", type=['xlsx'], key='p6_avon')
+        f_fab = st.file_uploader("🏭 Fabricantes", type=['xls','xlsx'], key='p6_fab')
+        f_ncm = st.file_uploader("📊 Catálogo NCM", type=['xlsx'], key='p6_ncm')
     f_coas = []
     if modo == "Fiabila":
-        f_coas = st.file_uploader("📄 COA(s) PDF — subí todos los de la operación",
-                                   type=['pdf'], accept_multiple_files=True, key='p6_coas_fiabila')
-
+        f_coas = st.file_uploader("📄 COA(s) PDF", type=['pdf'], accept_multiple_files=True, key='p6_coas_fiabila')
     st.markdown('</div>', unsafe_allow_html=True)
-
-    archivos_ok = all([f_pl, f_anmat, f_avon, f_fab, f_ncm]) and (
-        (modo == "Operación normal" and f_prox) or
-        (modo == "Fiabila" and len(f_coas) > 0)
-    )
-
+    archivos_ok = all([f_pl, f_anmat, f_avon, f_fab, f_ncm]) and ((modo == "Operación normal" and f_prox) or (modo == "Fiabila" and len(f_coas) > 0))
     if archivos_ok:
         st.markdown('<div class="card"><h3><span class="step-badge">2</span>Procesar operación</h3>', unsafe_allow_html=True)
         if st.button("⚙️ Analizar y procesar", key='p6_btn_procesar'):
             with st.spinner('Procesando...'):
                 try:
                     suffix_fab = '.xls' if f_fab.name.endswith('.xls') else '.xlsx'
-                    avon_bytes = f_avon.read()
-                    fab_bytes  = f_fab.read()
-                    ncm_bytes  = f_ncm.read()
-                    df_avon  = cargar_avon(avon_bytes)
-                    df_fab   = cargar_fabricantes(fab_bytes, suffix=suffix_fab)
-                    df_ncm   = cargar_ncm(ncm_bytes)
-
-                    if modo == "Fiabila":
-                        coas_data = []
-                        coa_errores = []
-                        for coa_file in f_coas:
-                            datos, err = parsear_coa_pdf(coa_file.read())
-                            if err:
-                                coa_errores.append(f"⚠️ {coa_file.name}: {err}")
-                            else:
-                                datos['archivo'] = coa_file.name
-                                coas_data.append(datos)
-
-                        invoice_rows, pl_rows, invoice_number = cargar_pl_fiabila(f_pl.read())
-                        filas, alertas_generales = procesar_fiabila(
-                            invoice_rows, pl_rows, coas_data, df_avon, df_fab, df_ncm
-                        )
-                        alertas_generales = alertas_generales + coa_errores
-
-                        st.session_state.filas_procesadas       = filas
-                        st.session_state.alertas_excluir        = []
-                        st.session_state.alertas_avon           = []
-                        st.session_state.alertas_generales      = alertas_generales
-                        st.session_state.invoice                = invoice_number
-                        st.session_state.excluidos              = set()
-                        st.session_state.datos_avon_completados = {}
-                        st.session_state.df_avon_editable       = None
-                        st.session_state._avon_init_invoice     = None
-                        st.session_state.equivalentes           = {}
-                        st.session_state.rotulado_activo        = False
-                        st.session_state.materiales_rotulado    = []
-                        st.session_state.fiabila_coas           = coas_data
-
-                    else:
-                        anmat_bytes = f_anmat.read()
-                        df_anmat = cargar_anmat(anmat_bytes)
-                        df_prox, es_pdf_prox, origen_explicito_prox, origen_proveedor_prox = cargar_proximas(f_prox.read(), f_prox.name)
-                        if es_pdf_prox and not origen_explicito_prox and origen_proveedor_prox:
-                            st.session_state.alerta_origen_proveedor = origen_proveedor_prox
-                        else:
-                            st.session_state.alerta_origen_proveedor = None
-
-                        pl, invoice = cargar_pl(f_pl.read())
-
-                        st.session_state._df_anmat_cache = df_anmat
-                        st.session_state._df_avon_cache  = df_avon
-                        st.session_state._df_fab_cache   = df_fab
-                        st.session_state._df_ncm_cache   = df_ncm
-
-                        filas, alertas_excluir, alertas_avon, alertas_generales = procesar_pl(
-                            pl, df_anmat, df_avon, df_prox, df_fab, df_ncm
-                        )
-
-                        st.session_state.filas_procesadas       = filas
-                        st.session_state.alertas_excluir        = alertas_excluir
-                        st.session_state.alertas_avon           = alertas_avon
-                        st.session_state.alertas_generales      = alertas_generales
-                        st.session_state.invoice                = invoice
-                        st.session_state.excluidos              = set()
-                        st.session_state.datos_avon_completados = {}
-                        st.session_state.df_avon_editable       = None
-                        st.session_state._avon_init_invoice     = None
-                        st.session_state.equivalentes           = {}
-                        st.session_state.rotulado_activo        = False
-                        st.session_state.materiales_rotulado    = []
-                        st.session_state.fiabila_coas           = []
-
+                    df_avon = cargar_avon(f_avon.read()); df_fab = cargar_fabricantes(f_fab.read(), suffix=suffix_fab); df_ncm = cargar_ncm(f_ncm.read())
+                    df_anmat = cargar_anmat(f_anmat.read())
+                    df_prox, es_pdf_prox, origen_explicito_prox, origen_proveedor_prox = cargar_proximas(f_prox.read(), f_prox.name)
+                    if es_pdf_prox and not origen_explicito_prox and origen_proveedor_prox: st.session_state.alerta_origen_proveedor = origen_proveedor_prox
+                    else: st.session_state.alerta_origen_proveedor = None
+                    pl, invoice = cargar_pl(f_pl.read())
+                    st.session_state._df_anmat_cache = df_anmat; st.session_state._df_avon_cache = df_avon; st.session_state._df_fab_cache = df_fab; st.session_state._df_ncm_cache = df_ncm
+                    filas, alertas_excluir, alertas_avon, alertas_generales = procesar_pl(pl, df_anmat, df_avon, df_prox, df_fab, df_ncm)
+                    st.session_state.filas_procesadas = filas; st.session_state.alertas_excluir = alertas_excluir; st.session_state.alertas_avon = alertas_avon; st.session_state.alertas_generales = alertas_generales; st.session_state.invoice = invoice; st.session_state.excluidos = set(); st.session_state.equivalentes = {}; st.session_state.rotulado_activo = False; st.session_state.materiales_rotulado = []
                 except Exception as e:
-                    import traceback
-                    st.error(f"Error al procesar: {e}")
-                    st.text(traceback.format_exc())
+                    import traceback; st.error(f"Error al procesar: {e}"); st.text(traceback.format_exc())
         st.markdown('</div>', unsafe_allow_html=True)
-
     if st.session_state.filas_procesadas is not None:
-        filas   = st.session_state.filas_procesadas
-        invoice = st.session_state.invoice
-
-        total    = len(filas)
-        skip     = len(st.session_state.alertas_excluir)
-        avon     = len(st.session_state.alertas_avon)
-        generales= len(st.session_state.alertas_generales)
-
+        filas = st.session_state.filas_procesadas; invoice = st.session_state.invoice
+        total = len(filas); skip = len(st.session_state.alertas_excluir); avon = len(st.session_state.alertas_avon); generales = len(st.session_state.alertas_generales)
         col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.markdown(f'<div class="stat-card"><div class="number">{total}</div><div class="label">Ítems PL</div></div>', unsafe_allow_html=True)
-        with col2:
-            st.markdown(f'<div class="stat-card"><div class="number" style="color:#00c896">{total - skip}</div><div class="label">A procesar</div></div>', unsafe_allow_html=True)
-        with col3:
-            st.markdown(f'<div class="stat-card"><div class="number" style="color:#ffd166">{avon}</div><div class="label">Avon / completar</div></div>', unsafe_allow_html=True)
-        with col4:
-            st.markdown(f'<div class="stat-card"><div class="number" style="color:#ff6b6b">{skip}</div><div class="label">No encontrados</div></div>', unsafe_allow_html=True)
-
+        with col1: st.markdown(f'<div class="stat-card"><div class="number">{total}</div><div class="label">Ítems PL</div></div>', unsafe_allow_html=True)
+        with col2: st.markdown(f'<div class="stat-card"><div class="number" style="color:#00c896">{total - skip}</div><div class="label">A procesar</div></div>', unsafe_allow_html=True)
+        with col3: st.markdown(f'<div class="stat-card"><div class="number" style="color:#ffd166">{avon}</div><div class="label">Avon / completar</div></div>', unsafe_allow_html=True)
+        with col4: st.markdown(f'<div class="stat-card"><div class="number" style="color:#ff6b6b">{skip}</div><div class="label">No encontrados</div></div>', unsafe_allow_html=True)
         st.markdown('<br>', unsafe_allow_html=True)
-
-        # ── Preview COAs procesados (solo Fiabila) ──
-        if modo == "Fiabila":
-            coas_f = st.session_state.get('fiabila_coas', [])
-            if coas_f:
-                with st.expander(f"📄 COAs procesados ({len(coas_f)})"):
-                    for c in coas_f:
-                        st.markdown(
-                            f'<div class="info-box"><strong>{c.get("archivo","")}</strong> → '
-                            f'Batch: <strong>{c.get("batch","")}</strong> | '
-                            f'Customer Code: <strong>{c.get("customer_code","")}</strong> | '
-                            f'Vence: <strong>{c.get("expired","")}</strong></div>',
-                            unsafe_allow_html=True
-                        )
-
-        # ── Alerta origen proveedor (PDF sin origen explícito) ──
-        if st.session_state.get('alerta_origen_proveedor'):
-            prov = st.session_state.alerta_origen_proveedor
-            st.markdown('<div class="card"><h3>⚠️ Origen no encontrado explícitamente en Próximas Importaciones</h3>', unsafe_allow_html=True)
-            st.markdown(f'<div class="alert-box">No se encontró "Country of origin" u origen explícito en el PDF. Se detectó <strong>{prov}</strong> como país del proveedor/exportador. ¿Confirmás que el origen es <strong>{prov}</strong>?</div>', unsafe_allow_html=True)
-            col_conf1, col_conf2 = st.columns([1, 1])
-            with col_conf1:
-                if st.button(f"✅ Confirmar origen: {prov}", key='p6_confirmar_origen_prov'):
-                    st.session_state.alerta_origen_proveedor = None
-                    st.rerun()
-            with col_conf2:
-                origen_manual = st.text_input("O ingresá el origen correcto:", key='p6_origen_manual_prov')
-                if origen_manual and st.button("Usar este origen", key='p6_usar_origen_manual'):
-                    st.session_state.alerta_origen_proveedor = None
-                    st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        filas_multi = [f for f in st.session_state.filas_procesadas if f.get('_multi_opciones')]
-        if filas_multi:
-            grupos_multi = {}
-            for f in filas_multi:
-                nro = f.get('_nro_registro', '')
-                if nro not in grupos_multi:
-                    grupos_multi[nro] = []
-                grupos_multi[nro].append(f)
-            if 'incluidos_multi' not in st.session_state:
-                st.session_state.incluidos_multi = set()
-            st.markdown('<div class="card"><h3>🔀 Registros con múltiples coincidencias</h3>', unsafe_allow_html=True)
-            for nro, opciones in grupos_multi.items():
-                st.markdown('<div class="alert-box"><strong>Registro ' + nro + '</strong> — encontrado ' + str(len(opciones)) + ' veces. Seleccioná cuál/es incluir:</div>', unsafe_allow_html=True)
-                for i, op in enumerate(opciones):
-                    key_op  = 'multi_' + nro + '_' + str(i)
-                    incluido = key_op in st.session_state.incluidos_multi
-                    col1, col2 = st.columns([5, 1])
-                    with col1:
-                        st.markdown('<div style="background:#f8f9fa;border:1px solid #dde3ea;border-radius:6px;padding:10px;margin:4px 0;font-size:0.85rem;"><strong>' +
-                                    op.get('Marca y Nombre del producto','') + '</strong> | Variedad: ' +
-                                    op.get('Variedades','—') + ' | Presentación: ' + op.get('Presentación','—') + '</div>', unsafe_allow_html=True)
-                    with col2:
-                        if st.button("✅ Incluida" if incluido else "Incluir", key='p6_btn_' + key_op):
-                            if incluido:
-                                st.session_state.incluidos_multi.discard(key_op)
-                            else:
-                                st.session_state.incluidos_multi.add(key_op)
-                            st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        alertas_venc = [f for f in st.session_state.filas_procesadas if f.get('_vencimiento') in ('vencido','proximo') and not f['_skip']]
-        if alertas_venc:
-            st.markdown('<div class="card"><h3>⏰ Alertas de vencimiento</h3>', unsafe_allow_html=True)
-            for fila in alertas_venc:
-                tipo    = fila.get('_vencimiento')
-                color   = '#cc0000' if tipo == 'vencido' else '#cc7700'
-                icono   = '🔴' if tipo == 'vencido' else '🟡'
-                msg     = [a for a in fila['_alertas'] if 'venc' in a.lower()]
-                msg_str = msg[0] if msg else ''
-                key_excl= f'venc_{fila["MATERIAL"]}_{fila["Lote"]}'
-                excluido= key_excl in st.session_state.excluidos
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.markdown(f'<div class="alert-box" style="border-color:{color};color:{color};">{icono} <strong>{fila["MATERIAL"]}</strong> — Lote {fila["Lote"]} — {msg_str}</div>', unsafe_allow_html=True)
-                with col2:
-                    if st.button("✅ Excluido" if excluido else "Excluir", key=f'p6_btn_venc_{key_excl}'):
-                        st.session_state.excluidos.add(key_excl)
-                        st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        # ══════════════════════════════════════════════════════
-        # SECCIÓN: No encontrados en ANMAT ni Avon + Equivalente
-        # ══════════════════════════════════════════════════════
-        if st.session_state.alertas_excluir:
-            st.markdown('<div class="card"><h3>⚠️ No encontrados en ANMAT ni Avon</h3>', unsafe_allow_html=True)
-
-            df_anmat_cache = st.session_state.get('_df_anmat_cache')
-            df_avon_cache  = st.session_state.get('_df_avon_cache')
-            df_fab_cache   = st.session_state.get('_df_fab_cache')
-            df_ncm_cache   = st.session_state.get('_df_ncm_cache')
-            bases_disponibles = all([df_anmat_cache is not None, df_avon_cache is not None,
-                                     df_fab_cache is not None, df_ncm_cache is not None])
-
-            for idx_excl, item in enumerate(st.session_state.alertas_excluir):
-                mat = item['material']
-                desc = item['descripcion']
-                excluido = mat in st.session_state.excluidos
-
-                estado_equiv = st.session_state.equivalentes.get(mat, {})
-                equiv_encontrado = estado_equiv.get('datos') is not None
-
-                st.markdown(f'<div class="alert-box"><strong>{mat}</strong> — {desc}</div>', unsafe_allow_html=True)
-
-                # Si ya tiene equivalente encontrado → mostrar preview
-                if equiv_encontrado:
-                    datos_eq = estado_equiv['datos']
-                    fuente_eq = estado_equiv.get('fuente', '')
-                    cod_eq = estado_equiv.get('codigo', '')
-                    fuente_label = '🏥 ANMAT' if fuente_eq == 'anmat' else '🌸 Avon'
-                    st.markdown(
-                        f'<div class="equiv-found">✅ Equivalente encontrado ({fuente_label}): '
-                        f'<strong>{cod_eq}</strong> → <em>{datos_eq.get("Marca y Nombre del producto", "")}</em> '
-                        f'| {datos_eq.get("Presentación", "")} | Reg: {datos_eq.get("N° de inscripcion", "")}'
-                        f'</div>', unsafe_allow_html=True
-                    )
-                    # Botón para cambiar equivalente
-                    col_cambiar, col_excl = st.columns([3, 1])
-                    with col_cambiar:
-                        if st.button("🔄 Cambiar equivalente", key=f'p6_cambiar_equiv_{mat}_{idx_excl}'):
-                            eq_state = st.session_state.equivalentes.get(mat, {})
-                            eq_state['datos'] = None
-                            eq_state['error'] = None
-                            st.session_state.equivalentes[mat] = eq_state
-                            st.rerun()
-                    with col_excl:
-                        if st.button("✅ Excluido" if excluido else "❌ Excluir del Anexo",
-                                     key=f'p6_excl_{mat}_{idx_excl}'):
-                            if excluido:
-                                st.session_state.excluidos.discard(mat)
-                            else:
-                                st.session_state.excluidos.add(mat)
-                            st.rerun()
-                else:
-                    # Mostrar campo de equivalente + botón excluir
-                    col_input, col_btn_buscar, col_excl = st.columns([3, 1, 1])
-                    with col_input:
-                        cod_prev = estado_equiv.get('codigo', '')
-                        cod_equiv_input = st.text_input(
-                            "Código equivalente",
-                            value=cod_prev,
-                            placeholder="ej: 12345",
-                            label_visibility="collapsed",
-                            key=f'p6_equiv_input_{mat}_{idx_excl}'
-                        )
-                    with col_btn_buscar:
-                        buscar_clicked = st.button("🔍 Buscar", key=f'p6_buscar_equiv_{mat}_{idx_excl}')
-                    with col_excl:
-                        if st.button("✅ Excluido" if excluido else "❌ Excluir del Anexo",
-                                     key=f'p6_excl_{mat}_{idx_excl}'):
-                            if excluido:
-                                st.session_state.excluidos.discard(mat)
-                            else:
-                                st.session_state.excluidos.add(mat)
-                            st.rerun()
-
-                    if buscar_clicked and cod_equiv_input.strip() and bases_disponibles:
-                        cod_equiv_clean = cod_equiv_input.strip()
-                        datos_eq, fuente_eq, error_eq = buscar_equivalente_en_bases(
-                            cod_equiv_clean, df_anmat_cache, df_avon_cache,
-                            None, df_fab_cache, df_ncm_cache,
-                            descripcion_pl=desc
-                        )
-                        st.session_state.equivalentes[mat] = {
-                            'codigo': cod_equiv_clean,
-                            'datos': datos_eq,
-                            'fuente': fuente_eq,
-                            'error': error_eq,
-                        }
-                        # Si se encontró, también quitar de excluidos (si estaba)
-                        if datos_eq is not None:
-                            st.session_state.excluidos.discard(mat)
-                        st.rerun()
-
-                    # Mostrar error de búsqueda previa
-                    if estado_equiv.get('error'):
-                        st.markdown(
-                            f'<div class="equiv-notfound">🔴 {estado_equiv["error"]} — Intentá con otro código.</div>',
-                            unsafe_allow_html=True
-                        )
-
-                st.markdown('<hr style="border:none;border-top:1px solid #f0f0f0;margin:8px 0;">', unsafe_allow_html=True)
-
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        if st.session_state.alertas_avon:
-            st.markdown('<div class="card"><h3>🌸 Ítems Avon — completar Fabricante, Origen y Variedad</h3>', unsafe_allow_html=True)
-            for idx_avon, item in enumerate(st.session_state.alertas_avon):
-                mat = item['material']
-                key_idx = f'{mat}_{idx_avon}'
-                prev = st.session_state.datos_avon_completados.get(key_idx, {})
-                st.markdown(f'<div class="alert-box"><strong>{mat}</strong> — {item["descripcion"]}</div>', unsafe_allow_html=True)
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    fab_val = st.text_input("Fabricante", value=prev.get('fabricante', ''), key=f'p6_fab_{key_idx}')
-                with c2:
-                    orig_val = st.text_input("Origen", value=prev.get('origen', ''), key=f'p6_orig_{key_idx}')
-                with c3:
-                    var_val = st.text_input("Variedad", value=prev.get('variedad', ''), key=f'p6_var_{key_idx}')
-                st.session_state.datos_avon_completados[key_idx] = {
-                    'fabricante': fab_val,
-                    'origen': orig_val,
-                    'variedad': var_val,
-                }
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        if st.session_state.alertas_generales:
-            with st.expander(f"⚠️ {len(st.session_state.alertas_generales)} alertas adicionales"):
-                for a in st.session_state.alertas_generales:
-                    st.markdown(f'<div class="alert-box">{a}</div>', unsafe_allow_html=True)
-
-        # ══════════════════════════════════════════════════════
-        # SECCIÓN: Rotulado — multiselect post-proceso si Sí
-        # ══════════════════════════════════════════════════════
-        if st.session_state.get('rotulado_activo'):
-            st.markdown('<div class="card"><h3>🏷️ Rotulado — seleccioná los materiales</h3>', unsafe_allow_html=True)
-            mats_disponibles = []
-            for fila in st.session_state.filas_procesadas:
-                mat_f = fila.get('MATERIAL', '')
-                if mat_f and mat_f not in st.session_state.excluidos and not fila.get('_skip'):
-                    if mat_f not in mats_disponibles:
-                        mats_disponibles.append(mat_f)
-            for mat_eq, eq_data in st.session_state.equivalentes.items():
-                if eq_data.get('datos') is not None and mat_eq not in st.session_state.excluidos:
-                    if mat_eq not in mats_disponibles:
-                        mats_disponibles.append(mat_eq)
-            if mats_disponibles:
-                mats_seleccionados = st.multiselect(
-                    "Seleccioná los materiales con rotulado:",
-                    options=mats_disponibles,
-                    default=[m for m in st.session_state.get('materiales_rotulado', []) if m in mats_disponibles],
-                    key='p6_multiselect_rotulado'
-                )
-                st.session_state.materiales_rotulado = mats_seleccionados
-                if mats_seleccionados:
-                    mats_str = ', '.join(str(m) for m in mats_seleccionados)
-                    st.markdown(
-                        f'<div class="info-box">📋 Leyenda que se agregará al Excel:<br>'
-                        f'<strong>Material {mats_str}: {LEYENDA_ROTULADO}</strong></div>',
-                        unsafe_allow_html=True
-                    )
-            else:
-                st.info("Procesá la operación primero para seleccionar materiales.")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        # ══════════════════════════════════════════════════════
-        # SECCIÓN: Generar Anexo
-        # ══════════════════════════════════════════════════════
         st.markdown('<div class="card"><h3><span class="step-badge">3</span>Generar Anexo</h3>', unsafe_allow_html=True)
         if st.button("📄 Generar Anexo completo", key='p6_btn_generar'):
             with st.spinner('Generando archivos...'):
-                incluidos_multi = st.session_state.get('incluidos_multi', set())
                 filas_final = []
                 for fila in filas:
-                    mat      = fila['MATERIAL']
-                    key_venc = mat + '_' + fila.get('Lote', '')
-                    if mat in st.session_state.excluidos:
-                        continue
-                    if 'venc_' + key_venc in st.session_state.excluidos:
-                        continue
-                    if fila.get('_multi_opciones'):
-                        nro    = fila.get('_nro_registro', '')
-                        idx    = fila.get('_multi_idx', -1)
-                        key_op = 'multi_' + nro + '_' + str(idx)
-                        if key_op not in incluidos_multi:
-                            continue
-                        f = fila.copy(); f['_skip'] = False
-                    elif fila.get('_skip'):
-                        # Verificar si tiene equivalente asignado
+                    mat = fila['MATERIAL']
+                    if mat in st.session_state.excluidos: continue
+                    if fila.get('_skip'):
                         equiv = st.session_state.equivalentes.get(mat, {})
                         if equiv.get('datos') is not None and mat not in st.session_state.excluidos:
-                            # Usar datos del equivalente pero mantener MATERIAL original
-                            f = fila.copy()
-                            f['_skip'] = False
-                            datos_eq = equiv['datos']
-                            f['Marca y Nombre del producto'] = datos_eq.get('Marca y Nombre del producto', '')
-                            f['Variedades']       = datos_eq.get('Variedades', '')
-                            f['Presentación']     = datos_eq.get('Presentación', '')
-                            f['N° de inscripcion']= datos_eq.get('N° de inscripcion', '')
-                            f['Origen']           = datos_eq.get('Origen', '')
-                            f['Fabricante']       = datos_eq.get('Fabricante', '')
-                            f['Posición Arancelaria'] = datos_eq.get('Posición Arancelaria', '')
-                            # MATERIAL original se mantiene (ya está en fila)
-                        else:
-                            continue
-                    else:
-                        f = fila.copy()
-                    if fila.get('_avon'):
-                        avon_idx = fila.get('_avon_idx', '')
-                        key_idx = f'{mat}_{avon_idx}'
-                        datos = st.session_state.datos_avon_completados.get(key_idx, {})
-                        if datos.get('fabricante'): f['Fabricante'] = datos['fabricante']
-                        if datos.get('origen'):     f['Origen']     = datos['origen']
-                        if datos.get('variedad'):   f['Variedades'] = datos['variedad']
+                            f = fila.copy(); f['_skip'] = False; datos_eq = equiv['datos']
+                            f['Marca y Nombre del producto'] = datos_eq.get('Marca y Nombre del producto', ''); f['Variedades'] = datos_eq.get('Variedades', ''); f['Presentación'] = datos_eq.get('Presentación', ''); f['N° de inscripcion'] = datos_eq.get('N° de inscripcion', ''); f['Origen'] = datos_eq.get('Origen', ''); f['Fabricante'] = datos_eq.get('Fabricante', ''); f['Posición Arancelaria'] = datos_eq.get('Posición Arancelaria', '')
+                        else: continue
+                    else: f = fila.copy()
                     filas_final.append(f)
-
                 principal, difusor, muestras, _ = separar_anexos(filas_final)
-                grupos    = [('PRINCIPAL', principal), ('DIFUSOR', difusor), ('MUESTRAS', muestras)]
-                ref       = nro_referencia.strip() if nro_referencia.strip() else invoice
-
-                # Rotulado: calcular qué materiales con rotulado caen en cada grupo
-                mats_rotulado_global = list(st.session_state.get('materiales_rotulado', [])) if st.session_state.get('rotulado_activo') else []
-
+                grupos = [('PRINCIPAL', principal), ('DIFUSOR', difusor), ('MUESTRAS', muestras)]
+                ref = nro_referencia.strip() if nro_referencia.strip() else invoice
                 buf_zip = BytesIO()
                 with zipfile.ZipFile(buf_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
                     for nombre_grupo, filas_grupo in grupos:
-                        if not filas_grupo:
-                            continue
-                        # Filtrar materiales rotulados que están en este grupo
-                        mats_en_grupo = {str(f.get('MATERIAL', '')) for f in filas_grupo}
-                        mats_rot_grupo = [m for m in mats_rotulado_global if str(m) in mats_en_grupo] or None
-
+                        if not filas_grupo: continue
                         nombre_base = f'ANEXO_{nombre_grupo}_{ref}'
-                        xls_completo = escribir_excel_bytes(filas_grupo, incluir_primeras_cols=True,
-                                                            materiales_rotulado=mats_rot_grupo)
+                        xls_completo = escribir_excel_bytes(filas_grupo, incluir_primeras_cols=True)
                         zf.writestr(f'{nombre_base}.xlsx', xls_completo)
-                        xls_sin = escribir_excel_bytes(filas_grupo, incluir_primeras_cols=False,
-                                                       materiales_rotulado=mats_rot_grupo)
+                        xls_sin = escribir_excel_bytes(filas_grupo, incluir_primeras_cols=False)
                         zf.writestr(f'{nombre_base}_SIN_MAT.xlsx', xls_sin)
                         pdf = excel_a_pdf_bytes(xls_sin, f'{nombre_base}_SIN_MAT')
-                        if pdf:
-                            zf.writestr(f'{nombre_base}_SIN_MAT.pdf', pdf)
+                        if pdf: zf.writestr(f'{nombre_base}_SIN_MAT.pdf', pdf)
                 buf_zip.seek(0)
-                zip_bytes = buf_zip.getvalue()
-
                 st.markdown('<div class="success-box">✅ Anexo generado correctamente</div>', unsafe_allow_html=True)
-                resumen = [f"**{n}**: {len(fg)} ítems" for n, fg in grupos if fg]
-                st.markdown(' · '.join(resumen))
-
-                st.download_button(
-                    label="⬇️ Descargar todos los archivos (ZIP)",
-                    data=zip_bytes,
-                    file_name=f"ANEXO_{ref}.zip",
-                    mime="application/zip",
-                    key='p6_dl_zip'
-                )
+                st.download_button(label="⬇️ Descargar todos los archivos (ZIP)", data=buf_zip.getvalue(), file_name=f"ANEXO_{ref}.zip", mime="application/zip", key='p6_dl_zip')
         st.markdown('</div>', unsafe_allow_html=True)
