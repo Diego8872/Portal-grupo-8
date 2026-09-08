@@ -3,12 +3,6 @@ import openpyxl, re, unicodedata, os, io, base64
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import pdfplumber
 
-st.set_page_config(
-    page_title="Corrector CO Natura",
-    page_icon="📋",
-    layout="centered"
-)
-
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono&display=swap');
@@ -150,16 +144,19 @@ def parse_num(s):
 # ── Groq Vision ──────────────────────────────────────────────────────────────
 
 def pdf_a_imagenes_b64(path, dpi=200):
-    """Convierte PDF a lista de imágenes en base64."""
+    """Convierte PDF a lista de imágenes en base64.
+    Usa PyMuPDF (fitz) en vez de pdf2image: no depende de poppler-utils
+    vía apt-get, así se evita el paso de packages.txt en el build."""
     try:
-        from pdf2image import convert_from_path
-        pages = convert_from_path(path, dpi=dpi)
+        import pymupdf as fitz
         imgs = []
-        for page in pages:
-            buf = io.BytesIO()
-            page.save(buf, format='PNG')
-            buf.seek(0)
-            imgs.append(base64.standard_b64encode(buf.read()).decode('utf-8'))
+        zoom = dpi / 72.0
+        matrix = fitz.Matrix(zoom, zoom)
+        doc = fitz.open(path)
+        for page in doc:
+            pix = page.get_pixmap(matrix=matrix)
+            imgs.append(base64.standard_b64encode(pix.tobytes("png")).decode('utf-8'))
+        doc.close()
         return imgs
     except Exception as e:
         return []
