@@ -430,7 +430,6 @@ def extraer_items_por_codigo(textos_pdf, ncm_dict):
             codigos_sin_match.append(cod)
     if codigos_sin_match:
         try:
-            from pdf2image import convert_from_bytes
             from groq import Groq
             groq_key = st.secrets.get("GROQ_API_KEY","")
             if groq_key:
@@ -447,11 +446,8 @@ Para cada código encontrado retorná un JSON con:
 Retorná ÚNICAMENTE un array JSON válido, sin markdown."""
                 for pdf_bytes_item in st.session_state.facturas_data[:1]:
                     _, pdf_bytes = pdf_bytes_item
-                    images = convert_from_bytes(pdf_bytes, dpi=200)
-                    for img in images:
-                        buf = io.BytesIO()
-                        img.save(buf, format="JPEG", quality=90)
-                        img_b64 = base64.b64encode(buf.getvalue()).decode()
+                    images_b64 = pdf_bytes_a_imagenes_b64_jpeg(pdf_bytes, dpi=200)
+                    for img_b64 in images_b64:
                         response = client.chat.completions.create(
                             model="meta-llama/llama-4-scout-17b-16e-instruct",
                             messages=[{"role":"user","content":[
@@ -523,14 +519,32 @@ def extraer_items_aesa_desde_excel(marcas_bytes):
     except: pass
     return items
 
+def pdf_bytes_a_imagenes_b64_jpeg(pdf_bytes, dpi=200):
+    """Convierte un PDF (bytes) a lista de imágenes JPEG en base64.
+    Usa PyMuPDF (fitz) en vez de pdf2image: no depende de poppler-utils
+    vía apt-get, así se evita el paso de packages.txt en el build."""
+    try:
+        import pymupdf as fitz
+        imgs = []
+        zoom = dpi / 72.0
+        matrix = fitz.Matrix(zoom, zoom)
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        for page in doc:
+            pix = page.get_pixmap(matrix=matrix)
+            img_bytes = pix.tobytes("jpeg", jpg_quality=90)
+            imgs.append(base64.b64encode(img_bytes).decode())
+        doc.close()
+        return imgs
+    except Exception:
+        return []
+
 def extraer_items_groq_vision(pdf_bytes):
     try:
-        from pdf2image import convert_from_bytes
         from groq import Groq
         groq_key = st.secrets.get("GROQ_API_KEY","")
         if not groq_key: return []
         client = Groq(api_key=groq_key)
-        images = convert_from_bytes(pdf_bytes, dpi=200)
+        images_b64 = pdf_bytes_a_imagenes_b64_jpeg(pdf_bytes, dpi=200)
         todos_items = []
         prompt = """Analizá esta factura comercial y extraé SOLO los ítems de la tabla de productos.
 Para cada ítem retorná un objeto JSON con estos campos exactos:
@@ -543,10 +557,7 @@ Para cada ítem retorná un objeto JSON con estos campos exactos:
 - total: precio total
 - origen: país de origen (ej: BRASIL)
 Retorná ÚNICAMENTE un array JSON válido, sin markdown, sin texto adicional."""
-        for img in images:
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=90)
-            img_b64 = base64.b64encode(buf.getvalue()).decode()
+        for img_b64 in images_b64:
             response = client.chat.completions.create(
                 model="meta-llama/llama-4-scout-17b-16e-instruct",
                 messages=[{"role":"user","content":[
