@@ -244,22 +244,32 @@ def parsear_di(text):
     # asigne a cada ENGINE/BLOCK cargado el país de su propio ítem del DI,
     # en vez de un único país "global" para todo el despacho.
     datos['paises_por_item'] = []
-    for m_item in re.finditer(r'\d{4}\s+N\s+(840[89]\.\d{2}\.\d{2}\.\d{3}[A-Z]?)', text_norm_upper):
+    # FIX (v3): antes se exigía que el número de ítem y "N" estuvieran
+    # PEGADOS a la posición arancelaria (ej: "0058 N 8409.99.12.100C"). En
+    # OCR a resoluciones más bajas, el layout de la tabla suele partir esto
+    # en líneas distintas (aparece "Posición SIM / Código AFIP" en el
+    # medio), así que ese ítem dejaba de reconocerse como motor/block por
+    # completo y el país terminaba saliendo de OTRO ítem. Ahora se busca
+    # directamente el patrón de posición 840[89] en cualquier parte del
+    # texto, sin exigir que esté pegado al número de ítem.
+    for m_item in re.finditer(r'840[89]\.\d{2}\.\d{2}\.\d{3}[A-Z]?', text_norm_upper):
         pos_after = m_item.end()
-        # FIX: usar \d[\d.,]* (debe EMPEZAR con un dígito real) en vez de
-        # [\d.,]+, que tambien matcheaba el punto suelto de "Kg." en el
-        # encabezado de tabla "Total Kg. Neto Origen Pais / Provincia..."
-        # que a veces aparece ENTRE la linea del item y la linea real de
-        # paises. Ese encabezado no tiene ningun pais, asi que el item
-        # quedaba vacio y el codigo caia al fallback global (que agarraba
-        # el pais de OTRO item, no el del motor).
-        m_val = re.search(r'\d[\d.,]*\s+.+?(UNIDAD|KILOGRAMO)\s', text_norm_upper[pos_after:pos_after + 600])
-        if not m_val:
-            continue
-        val_line = m_val.group(0)
+        # FIX (v2): antes se buscaba el renglón de países delimitándolo con
+        # la palabra "UNIDAD" o "KILOGRAMO" como ancla de cierre. Eso falla
+        # cuando el OCR pierde esa palabra puntual en la fila de un ítem
+        # (pasa en documentos escaneados de baja calidad: el renglón
+        # "Total Kg. Neto Origen Pais... Pais de Procedencia..." puede
+        # salir incompleto, sin "Unidad/Estado"). Ahora se buscan los
+        # nombres de país DIRECTAMENTE en una ventana de texto después de
+        # la posición arancelaria del ítem, sin depender de esa palabra
+        # ancla. Si el OCR además se comió una de las dos repeticiones del
+        # país (pasa: a veces solo queda "ESTADOS UNIDOS" una vez en vez
+        # de dos), igual funciona: con un solo país encontrado se asume
+        # fabricación = procedencia (ya contemplado más abajo).
+        chunk = text_norm_upper[pos_after:pos_after + 400]
         encontrados = []  # (posicion, codigo)
         for pais, codigo in PAISES.items():
-            pos = val_line.find(pais)
+            pos = chunk.find(pais)
             if pos != -1:
                 encontrados.append((pos, codigo))
         encontrados.sort(key=lambda x: x[0])
@@ -326,7 +336,9 @@ def parsear_di(text):
 
     datos['regimen'] = '20'
 
-    m = re.search(r'ZA\(0*(\d{4})\)', text_norm)
+    # FIX: el OCR a veces lee "ZA(002026)" como "Z.A(002026)" (mete un
+    # punto/espacio de más entre la Z y la A). Se tolera esa variante.
+    m = re.search(r'Z\.?\s?A\(0*(\d{4})\)', text_norm)
     datos['anio_fab_di'] = m.group(1) if m else ''
 
     return datos, alertas
