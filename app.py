@@ -210,6 +210,13 @@ projects = [
         "desc": "Cruza la Declaración Jurada de SENASA (embalajes de madera) contra la DI. Valida punto de ingreso, transporte, destino y país de origen/procedencia.",
         "page": "pages/19_corrector_senasa.py"
     },
+    {
+        "icon": "🥤",
+        "name": "Lote Expo Coca",
+        "tag": "Exportaciones",
+        "desc": "Armado automático del LOTE de exportación Coca-Cola. Cruza Orígenes, Picking List, Factura, Exportaciones y DJO para completar NCM, valores, países y normas.",
+        "page": "pages/20_Lote_Expo_Coca.py"
+    },
 ]
 
 coming_soon = [
