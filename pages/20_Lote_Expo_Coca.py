@@ -193,27 +193,43 @@ def leer_picking(file_bytes):
 
 
 def leer_factura(file_bytes):
-    """Devuelve dict codigo -> deque[(precio_unit, subtotal)] en orden de aparición."""
+    """Devuelve la lista de renglones de PARTES (sin cajas), en orden de aparición:
+    {codigo, parte, pu, st, qt, usado}"""
     doc = fitz.open(stream=file_bytes, filetype="pdf")
-    items = defaultdict(deque)
+    renglones = []
     for page in doc:
         words = page.get_text("words")
         x_pu = next((w[2] for w in words if w[4] == "Unitario"), 433)
         x_st = next((w[2] for w in words if w[4] == "Subtotal"), 563)
+        x_qt = next((w[2] for w in words if w[4] == "Cantidad"), 325)
         for w in words:
             if w[0] < 70 and re.fullmatch(r"\d{7}", w[4]):
-                linea = [z for z in words if abs(z[1] - w[1]) < 3]
+                linea = sorted([z for z in words if abs(z[1] - w[1]) < 3], key=lambda z: z[0])
+                desc = " ".join(z[4] for z in linea if w[2] < z[0] < x_qt - 40)
+                if norm_txt(desc).startswith("CAJA"):
+                    continue
                 pu = next((a_num_ar(z[4]) for z in linea
                            if abs(z[2] - x_pu) < 15 and a_num_ar(z[4]) is not None), None)
                 st_ = next((a_num_ar(z[4]) for z in linea
                             if abs(z[2] - x_st) < 15 and a_num_ar(z[4]) is not None), None)
+                qt = next((a_num_ar(z[4]) for z in linea
+                           if abs(z[2] - x_qt) < 20 and re.fullmatch(r"[\d.]+", z[4])), None)
+                m = re.match(r"(?:PARTE|PART)\s*(\d+[A-Z]?)", norm_txt(desc))
                 if pu is not None or st_ is not None:
-                    items[int(w[4])].append((pu, st_))
-    return items
+                    renglones.append({"codigo": int(w[4]), "parte": m.group(1) if m else None,
+                                      "pu": pu, "st": st_, "qt": qt, "usado": False})
+    return renglones
 
 
 def leer_origenes(file_bytes):
     ws = load_workbook(io.BytesIO(file_bytes), data_only=True).active
+    # Celdas combinadas: se replica el valor en todas las filas del rango
+    for rango in list(ws.merged_cells.ranges):
+        valor = ws.cell(rango.min_row, rango.min_col).value
+        ws.unmerge_cells(str(rango))
+        for fila in range(rango.min_row, rango.max_row + 1):
+            for col in range(rango.min_col, rango.max_col + 1):
+                ws.cell(fila, col).value = valor
     filas = []
     kit_actual = None
     for r in ws.iter_rows(min_row=2, values_only=True):
@@ -277,18 +293,38 @@ def leer_djo(file_bytes):
 # =====================================================================
 def armar_lote(origenes, kits, factura, export, djo):
     kits_por_num = {k["kit"]: k for k in kits}
-    filas, avisos = [], []
-    kit_prev, nro_kit = None, 0
+    avisos = []
 
+    # 1) Resolver el kit de cada fila de Orígenes
     for o in origenes:
-        # Kit: el del bloque de Orígenes, validado contra el Picking;
-        # si no coincide, se busca la caja/bidón en el Picking.
         kit = o["kit_origen"] if o["kit_origen"] in kits_por_num else None
         if kit is None:
             cand = [k["kit"] for k in kits if o["caja"] in k["materiales"]]
             kit = cand[0] if cand else o["kit_origen"]
             if not cand:
                 avisos.append(f"Material {o['material']}: kit no encontrado en el Picking List.")
+        o["kit"] = kit
+
+    # 2) Unificar: mismo kit + mismo material + misma parte -> una sola línea (suma E y L)
+    grupos = {}
+    for o in origenes:
+        clave = (o["kit"], o["material"], norm_parte(o["parte"]))
+        if clave in grupos:
+            g = grupos[clave]
+            g["cantidad"] = (a_float(g["cantidad"]) or 0) + (a_float(o["cantidad"]) or 0)
+            g["peso_total"] = (a_float(g["peso_total"]) or 0) + (a_float(o["peso_total"]) or 0)
+            g["unificadas"] += 1
+        else:
+            grupos[clave] = dict(o, unificadas=1)
+    unificadas = [g for g in grupos.values() if g["unificadas"] > 1]
+    for g in unificadas:
+        avisos.append(f"{g['material']} {g['kit']} {g['parte']}: se unificaron {g['unificadas']} filas de Orígenes.")
+
+    # 3) Armar las filas del LOTE
+    filas = []
+    kit_prev, nro_kit = None, 0
+    for o in grupos.values():
+        kit = o["kit"]
         kit_info = kits_por_num.get(kit, {})
 
         col_a = None
@@ -302,29 +338,53 @@ def armar_lote(origenes, kits, factura, export, djo):
         if not exp:
             avisos.append(f"{articulo}: sin coincidencia en Exportaciones (NCM/Marca/V.Insumo en blanco).")
 
-        pu = st_ = None
-        if factura.get(o["material"]):
-            pu, st_ = factura[o["material"]].popleft()
+        # Factura: renglones del material (en orden) hasta cubrir la cantidad de Orígenes.
+        # Si el código no figura, se busca un renglón libre con la misma parte y cantidad.
+        pu, st_ = None, None
+        objetivo = a_float(o["cantidad"])
+        libres = [r for r in factura if not r["usado"] and r["codigo"] == o["material"]]
+        if not libres:
+            libres = [r for r in factura if not r["usado"] and r["parte"] == norm_parte(o["parte"])
+                      and objetivo is not None and r["qt"] is not None and abs(r["qt"] - objetivo) < 1e-6]
+            if libres:
+                avisos.append(f"{articulo}: el código no figura en la Factura; se tomó el renglón "
+                              f"{libres[0]['codigo']} (misma parte y cantidad). Verificar.")
+        if libres:
+            acum = 0.0
+            for r in libres:
+                r["usado"] = True
+                if pu is None:
+                    pu = r["pu"]
+                st_ = (st_ or 0) + (r["st"] or 0)
+                acum += r["qt"] or 0
+                if objetivo is None or r["qt"] is None or acum >= objetivo - 1e-6:
+                    break
+            if objetivo is not None and acum and abs(acum - objetivo) > 1e-6:
+                avisos.append(f"{articulo}: cantidad Orígenes ({objetivo:g}) ≠ Factura ({acum:g}).")
         else:
             avisos.append(f"{articulo}: no encontrado en la Factura Final.")
 
         origen_n = norm_txt(o["origen"])
         pais = PAISES.get(origen_n)
+        if pais is None:
+            pais = PAISES.get(re.sub(r"\bREP\b\.?\s*", "REPUBLICA ", origen_n).strip())
         if pais is None and origen_n:
             avisos.append(f"{articulo}: país '{o['origen']}' no encontrado en la tabla.")
 
         valor = exp.get("valor")
         dj = djo.get((o["material"], kit, norm_parte(o["parte"])), {})
+        peso = a_float(o["peso_total"])
 
         filas.append({
             "A": col_a, "B": articulo, "C": o["denominacion"], "D": exp.get("ncm") or None,
-            "E": o["cantidad"], "F": pu, "G": st_, "H": pais, "I": 7,
-            "J": exp.get("ident") or None, "K": articulo, "L": o["peso_total"],
+            "E": int(o["cantidad"]) if isinstance(o["cantidad"], float) and o["cantidad"].is_integer() else o["cantidad"], "F": pu, "G": round(st_, 2) if st_ is not None else None,
+            "H": pais, "I": 7, "J": exp.get("ident") or None, "K": articulo,
+            "L": round(peso, 3) if peso is not None else o["peso_total"],
             "N": dj.get("normas"), "P": kit_info.get("cantidad") if valor is not None else None,
             "Q": valor, "R": o["origen"] or None, "S": dj.get("nro"), "T": dj.get("fecha"),
         })
 
-    sobrantes = [c for c, q in factura.items() if any((pu or 0) > 0 for pu, _ in q)]
+    sobrantes = [r["codigo"] for r in factura if not r["usado"] and (r["pu"] or 0) > 0]
     return filas, avisos, sobrantes
 
 
