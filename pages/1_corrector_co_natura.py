@@ -447,8 +447,8 @@ def leer_co_pdf(path):
         r'^\s*(\d{1,3})\s+(\d{4}\.\d{2}\.\d{2}).*?([\d\.]+,\d{3})\s+pç.*?([\d\.]+,\d{3})'
     )
 
-    mat_re_semicolon = re.compile(r';\s*(\d{7,8})(?:\s|$)')   # con ";" como pista fuerte
-    mat_re_solosemi  = re.compile(r'^\s*;\s*(\d{7,8})\s*$')   # línea que empieza con ";"
+    mat_re_semicolon = re.compile(r';\s*(\d{7,8})(?!\d)')   # con ";" como pista fuerte (tolera coma/punto final)
+    mat_re_solosemi  = re.compile(r'^\s*;\s*(\d{7,8})(?!\d)')   # línea que empieza con ";"
     mat_re_candidato = re.compile(r'(?<!\d)(\d{7,8})(?!\d)')  # fallback: 7-8 dígitos exactos
     mat_re_ncm       = re.compile(r'\d{4}\.\d{2}\.\d{2}')
     mat_re_djo       = re.compile(r'\d{6,8}\s*[-•]\s*\d{2}/\d{2}/\d{4}')
@@ -482,7 +482,7 @@ def leer_co_pdf(path):
 
         # Paso 2: línea sola con número de 7-8 dígitos dentro del bloque
         for j in range(start, fin_real):
-            mm = mat_re_solosemi.match(lines[j]) or re.match(r'^\s*(\d{7,8})\s*$', lines[j])
+            mm = mat_re_solosemi.match(lines[j]) or re.match(r'^\s*(\d{7,8})(?!\d)', lines[j])
             if mm:
                 num = int(mm.group(1))
                 prev = lines[j-1] if j > 0 else ''
