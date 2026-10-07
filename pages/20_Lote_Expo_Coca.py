@@ -162,7 +162,8 @@ def a_float(x):
 # LECTORES
 # =====================================================================
 def leer_picking(file_bytes):
-    """Devuelve lista de kits [{kit, cantidad, materiales:set}] en orden."""
+    """Devuelve lista de kits [{kit, cantidad, materiales:set, lotes:set[(material, lote)]}] en orden.
+    Un mismo kit puede aparecer más de una vez (con distinto Kit Quant)."""
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     kits = []
     actual = None
@@ -185,10 +186,13 @@ def leer_picking(file_bytes):
                 for z in misma:
                     if z[3] and 230 < z[0] < 300 and re.fullmatch(r"\d+", z[2]):
                         cant = int(z[2])
-                actual = {"kit": int(t), "cantidad": cant, "materiales": set()}
+                actual = {"kit": int(t), "cantidad": cant, "materiales": set(), "lotes": set()}
                 kits.append(actual)
             elif not bold and actual is not None:
                 actual["materiales"].add(int(t))
+                lote = next((z[2] for z in misma if re.fullmatch(r"\d{10}", z[2])), None)
+                if lote:
+                    actual["lotes"].add((int(t), lote))
     return kits
 
 
@@ -196,6 +200,8 @@ def leer_factura(file_bytes):
     """Devuelve la lista de renglones de PARTES (sin cajas), en orden de aparición:
     {codigo, parte, pu, st, qt, usado}"""
     doc = fitz.open(stream=file_bytes, filetype="pdf")
+    if "PRO-FORMA" in norm_txt(doc[0].get_text()):
+        return leer_proforma(doc)
     renglones = []
     for page in doc:
         words = page.get_text("words")
@@ -221,10 +227,54 @@ def leer_factura(file_bytes):
     return renglones
 
 
+def leer_proforma(doc):
+    """Factura Pro-Forma: cada ítem viene como bloque de líneas
+    código / descripción / Peso Neto / Peso Bruto / cantidad / EA / empaque / P.Unitario / subtotal.
+    Se usa el subtotal impreso (validado contra cantidad x P.Unitario)."""
+    lineas = []
+    for page in doc:
+        lineas += [l.strip() for l in page.get_text().split("\n")]
+    num = re.compile(r"^[\d.]+(,\d+)?$")
+    renglones = []
+    i = 0
+    while i < len(lineas):
+        if not re.fullmatch(r"\d{7}", lineas[i]):
+            i += 1
+            continue
+        codigo = int(lineas[i])
+        j = i + 1
+        desc = []
+        while j < len(lineas) and not lineas[j].upper().startswith("PESO") and not num.match(lineas[j]):
+            desc.append(lineas[j])
+            j += 1
+        while j < len(lineas) and lineas[j].upper().startswith("PESO"):
+            j += 1
+        bloque = lineas[j:j + 5]  # cantidad, UM, empaque, P.Unitario, subtotal
+        i = j
+        if len(bloque) < 4 or not num.match(bloque[0]) or not num.match(bloque[3]):
+            continue
+        qt, pu = a_num_ar(bloque[0]), a_num_ar(bloque[3])
+        descripcion = norm_txt(" ".join(desc))
+        if descripcion.startswith("CAJA"):
+            continue
+        m = re.match(r"(?:PARTE|PART)\s*(\d+[A-Z]?)", descripcion)
+        st_ = round(qt * pu, 2) if qt is not None and pu is not None else None
+        if len(bloque) >= 5 and num.match(bloque[4]):
+            impreso = a_num_ar(bloque[4]) if "," in bloque[4] else float(bloque[4].replace(".", ""))
+            if st_ is None or abs(impreso - st_) < 1:
+                st_ = impreso
+        renglones.append({"codigo": codigo, "parte": m.group(1) if m else None,
+                          "pu": pu, "st": st_, "qt": qt, "usado": False})
+    return renglones
+
+
 def leer_origenes(file_bytes):
     ws = load_workbook(io.BytesIO(file_bytes), data_only=True).active
     # Celdas combinadas: se replica el valor en todas las filas del rango
+    # (salvo la columna B "Sabor", que marca el inicio de cada bloque de kit)
     for rango in list(ws.merged_cells.ranges):
+        if rango.min_col == 2 and rango.max_col == 2:
+            continue
         valor = ws.cell(rango.min_row, rango.min_col).value
         ws.unmerge_cells(str(rango))
         for fila in range(rango.min_row, rango.max_row + 1):
@@ -232,6 +282,7 @@ def leer_origenes(file_bytes):
                 ws.cell(fila, col).value = valor
     filas = []
     kit_actual = None
+    bloque = 0
     for r in ws.iter_rows(min_row=2, values_only=True):
         r = list(r) + [None] * 14
         mat = a_int(r[0])
@@ -240,8 +291,10 @@ def leer_origenes(file_bytes):
         nums = re.findall(r"\b\d{7}\b", str(r[1] or ""))
         if nums:
             kit_actual = int(nums[-1])
+            bloque += 1
         filas.append({
-            "material": mat, "kit_origen": kit_actual,
+            "material": mat, "kit_origen": kit_actual, "bloque": bloque,
+            "lote": str(r[7] or "").strip(),
             "parte": " ".join(str(r[2] or "").split()),
             "denominacion": " ".join(str(r[3] or "").split()),
             "caja": a_int(r[4]), "cantidad": r[8], "origen": " ".join(str(r[10] or "").split()),
@@ -292,23 +345,36 @@ def leer_djo(file_bytes):
 # ARMADO DEL LOTE
 # =====================================================================
 def armar_lote(origenes, kits, factura, export, djo):
-    kits_por_num = {k["kit"]: k for k in kits}
     avisos = []
 
-    # 1) Resolver el kit de cada fila de Orígenes
+    # 1) Resolver a qué kit del Picking (kit + Kit Quant) pertenece cada fila de Orígenes.
+    #    Si el kit aparece más de una vez en el Picking, se decide por caja/bidón + lote;
+    #    si no alcanza, por el orden de los bloques del kit en Orígenes.
+    bloques_por_kit = defaultdict(list)
     for o in origenes:
-        kit = o["kit_origen"] if o["kit_origen"] in kits_por_num else None
-        if kit is None:
-            cand = [k["kit"] for k in kits if o["caja"] in k["materiales"]]
-            kit = cand[0] if cand else o["kit_origen"]
-            if not cand:
-                avisos.append(f"Material {o['material']}: kit no encontrado en el Picking List.")
-        o["kit"] = kit
+        if o["bloque"] not in bloques_por_kit[o["kit_origen"]]:
+            bloques_por_kit[o["kit_origen"]].append(o["bloque"])
 
-    # 2) Unificar: mismo kit + mismo material + misma parte -> una sola línea (suma E y L)
+    for o in origenes:
+        occ = [i for i, k in enumerate(kits) if k["kit"] == o["kit_origen"]]
+        if not occ:
+            occ = [i for i, k in enumerate(kits) if o["caja"] in k["materiales"]]
+            if not occ:
+                avisos.append(f"Material {o['material']}: kit no encontrado en el Picking List.")
+        if len(occ) > 1:
+            por_lote = [i for i in occ if (o["caja"], o["lote"]) in kits[i]["lotes"]]
+            if len(por_lote) == 1:
+                occ = por_lote
+            else:
+                n = bloques_por_kit[o["kit_origen"]].index(o["bloque"])
+                occ = [occ[min(n, len(occ) - 1)]]
+        o["occ"] = occ[0] if occ else None
+        o["kit"] = kits[o["occ"]]["kit"] if occ else o["kit_origen"]
+
+    # 2) Unificar: mismo kit + mismo Kit Quant + mismo material + misma parte -> una línea (suma E y L)
     grupos = {}
     for o in origenes:
-        clave = (o["kit"], o["material"], norm_parte(o["parte"]))
+        clave = (o["occ"], o["kit"], o["material"], norm_parte(o["parte"]))
         if clave in grupos:
             g = grupos[clave]
             g["cantidad"] = (a_float(g["cantidad"]) or 0) + (a_float(o["cantidad"]) or 0)
@@ -323,15 +389,21 @@ def armar_lote(origenes, kits, factura, export, djo):
     # 3) Armar las filas del LOTE
     filas = []
     kit_prev, nro_kit = None, 0
+    # Mantener juntas las líneas de cada kit (kit + Kit Quant), respetando el orden de Orígenes
+    orden_occ = {}
     for o in grupos.values():
+        orden_occ.setdefault((o["occ"], o["kit"]), len(orden_occ))
+    lineas = sorted(grupos.values(), key=lambda o: orden_occ[(o["occ"], o["kit"])])
+
+    for o in lineas:
         kit = o["kit"]
-        kit_info = kits_por_num.get(kit, {})
+        kit_info = kits[o["occ"]] if o["occ"] is not None else {}
 
         col_a = None
-        if kit != kit_prev:
+        if (o["occ"], kit) != kit_prev:
             nro_kit += 1
             col_a = nro_kit
-            kit_prev = kit
+            kit_prev = (o["occ"], kit)
 
         articulo = f"{o['material']} {kit or ''} {o['parte']}".strip()
         exp = export.get((kit, norm_parte(o["parte"])), {})
@@ -342,8 +414,10 @@ def armar_lote(origenes, kits, factura, export, djo):
         # Si el código no figura, se busca un renglón libre con la misma parte y cantidad.
         pu, st_ = None, None
         objetivo = a_float(o["cantidad"])
+        for r in factura:
+            r.setdefault("resto", r["qt"])
         libres = [r for r in factura if not r["usado"] and r["codigo"] == o["material"]]
-        if not libres:
+        if not libres and not any(r["codigo"] == o["material"] for r in factura):
             libres = [r for r in factura if not r["usado"] and r["parte"] == norm_parte(o["parte"])
                       and objetivo is not None and r["qt"] is not None and abs(r["qt"] - objetivo) < 1e-6]
             if libres:
@@ -352,11 +426,19 @@ def armar_lote(origenes, kits, factura, export, djo):
         if libres:
             acum = 0.0
             for r in libres:
-                r["usado"] = True
                 if pu is None:
                     pu = r["pu"]
-                st_ = (st_ or 0) + (r["st"] or 0)
-                acum += r["qt"] or 0
+                falta = None if objetivo is None else objetivo - acum
+                if falta is not None and r["resto"] and r["resto"] > falta + 1e-6 and r["pu"] is not None:
+                    # El renglón de la Factura cubre más de lo necesario: se toma solo una parte
+                    st_ = (st_ or 0) + falta * r["pu"]
+                    r["resto"] -= falta
+                    acum += falta
+                    break
+                r["usado"] = True
+                parcial = r["resto"] is not None and r["qt"] and r["resto"] < r["qt"] - 1e-6
+                st_ = (st_ or 0) + ((r["resto"] * r["pu"]) if parcial and r["pu"] is not None else (r["st"] or 0))
+                acum += r["resto"] or 0
                 if objetivo is None or r["qt"] is None or acum >= objetivo - 1e-6:
                     break
             if objetivo is not None and acum and abs(acum - objetivo) > 1e-6:
@@ -380,7 +462,9 @@ def armar_lote(origenes, kits, factura, export, djo):
             "E": int(o["cantidad"]) if isinstance(o["cantidad"], float) and o["cantidad"].is_integer() else o["cantidad"], "F": pu, "G": round(st_, 2) if st_ is not None else None,
             "H": pais, "I": 7, "J": exp.get("ident") or None, "K": articulo,
             "L": round(peso, 3) if peso is not None else o["peso_total"],
-            "N": dj.get("normas"), "P": kit_info.get("cantidad") if valor is not None else None,
+            "N": dj.get("normas"),
+            "O": 1 if origen_n == "LOCAL" else (2 if origen_n else None),
+            "P": kit_info.get("cantidad") if valor is not None else None,
             "Q": valor, "R": o["origen"] or None, "S": dj.get("nro"), "T": dj.get("fecha"),
         })
 
@@ -403,7 +487,7 @@ def generar_excel(filas):
         c.fill = PatternFill("solid", start_color="D9E1F2", end_color="D9E1F2")
 
     for n, f in enumerate(filas, start=2):
-        for col in "ABCDEFGHIJKLNPQRST":
+        for col in "ABCDEFGHIJKLNOPQRST":
             ws[f"{col}{n}"] = f.get(col)
         ws[f"M{n}"] = f'=IF(AND(ISNUMBER(P{n}),ISNUMBER(Q{n})),P{n}*Q{n},"")'
         for col in range(1, 21):
@@ -486,7 +570,7 @@ if st.session_state.get("lote_filas"):
 
     df = pd.DataFrame(filas)
     df["M"] = [(f["P"] * f["Q"]) if f["P"] is not None and f["Q"] is not None else None for f in filas]
-    df = df[list("ABCDEFGHIJKLMNPQRST")]
+    df = df[list("ABCDEFGHIJKLMNOPQRST")]
     st.dataframe(df, use_container_width=True, hide_index=True)
 
     if sobrantes:
