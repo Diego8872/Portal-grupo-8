@@ -448,7 +448,7 @@ def segmentar_dp(texto):
                 dp[j] = dp[i] + [sub]
     return dp[n] if dp[n] is not None else [texto]
 
-PALABRAS_CLAVE = ["KIT", "CONJUNTO", "MANGUERA"]
+PALABRAS_CLAVE = ["KIT", "CONJUNTO", "MANGUERA", "GRUPO", "JUEGO", "ELEMENTO", "MOTOR"]
 PALABRAS_CLAVE_FRASE = ["ELEMENTO FILTRANTE"]
 
 CORRECCIONES_ORTOGRAFIA = {
@@ -793,6 +793,7 @@ def generar_excel(resultados):
 
 
 # ── UI ─────────────────────────────────────────────────────
+
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@300;400;500&display=swap');
@@ -909,9 +910,6 @@ st.markdown("""
     .stInfo { background: rgba(13,59,110,0.35) !important; border-left-color: #1e6ab8 !important; }
     hr { border-color: rgba(30,106,184,0.25) !important; }
     .stDataFrame { border-radius: 8px !important; }
-[data-testid="stToolbar"] { visibility: hidden !important; }
-    [data-testid="stDecoration"] { display: none !important; }
-    a[href*="github.com"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
