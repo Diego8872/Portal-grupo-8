@@ -15,6 +15,8 @@ try:
 except ImportError:
     import fitz
 
+import msoffcrypto
+
 
 # =====================================================================
 # TABLA DE PAÍSES (fija) — "LOCAL" = BA
@@ -146,6 +148,33 @@ def a_num_ar(s):
     if not re.fullmatch(r"[\d.]+,\d+|\d+", s):
         return None
     return float(s.replace(".", "").replace(",", "."))
+
+
+def clave_excel():
+    """Contraseña del Excel de Exportaciones, guardada en los Secrets de Streamlit (nunca en el código)."""
+    try:
+        return st.secrets.get("EXPO_PASSWORD")
+    except Exception:
+        return None
+
+
+def desbloquear_excel(file_bytes, password=None):
+    """Si el Excel tiene contraseña de apertura, lo desencripta en memoria.
+    Si no tiene contraseña, lo devuelve tal cual."""
+    archivo = msoffcrypto.OfficeFile(io.BytesIO(file_bytes))
+    if not archivo.is_encrypted():
+        return file_bytes
+    if not password:
+        raise ValueError("El Excel de Exportaciones tiene contraseña y no está configurada "
+                         "(EXPO_PASSWORD en los Secrets de Streamlit).")
+    salida = io.BytesIO()
+    try:
+        archivo.load_key(password=password)
+        archivo.decrypt(salida)
+    except Exception:
+        raise ValueError("No se pudo abrir el Excel de Exportaciones: la contraseña configurada "
+                         "no es correcta. Revisá EXPO_PASSWORD en los Secrets de Streamlit.")
+    return salida.getvalue()
 
 
 def a_float(x):
@@ -371,10 +400,11 @@ def armar_lote(origenes, kits, factura, export, djo):
         o["occ"] = occ[0] if occ else None
         o["kit"] = kits[o["occ"]]["kit"] if occ else o["kit_origen"]
 
-    # 2) Unificar: mismo kit + mismo Kit Quant + mismo material + misma parte -> una línea (suma E y L)
+    # 2) Unificar: mismo material + kit + origen + parte (y mismo Kit Quant, como en la Factura)
+    #    -> una sola línea (suma E y L)
     grupos = {}
     for o in origenes:
-        clave = (o["occ"], o["kit"], o["material"], norm_parte(o["parte"]))
+        clave = (o["occ"], o["kit"], o["material"], norm_parte(o["parte"]), norm_txt(o["origen"]))
         if clave in grupos:
             g = grupos[clave]
             g["cantidad"] = (a_float(g["cantidad"]) or 0) + (a_float(o["cantidad"]) or 0)
@@ -384,7 +414,8 @@ def armar_lote(origenes, kits, factura, export, djo):
             grupos[clave] = dict(o, unificadas=1)
     unificadas = [g for g in grupos.values() if g["unificadas"] > 1]
     for g in unificadas:
-        avisos.append(f"{g['material']} {g['kit']} {g['parte']}: se unificaron {g['unificadas']} filas de Orígenes.")
+        avisos.append(f"{g['material']} {g['kit']} {g['parte']} ({g['origen']}): "
+                      f"se unificaron {g['unificadas']} filas de Orígenes.")
 
     # 3) Armar las filas del LOTE
     filas = []
@@ -405,10 +436,8 @@ def armar_lote(origenes, kits, factura, export, djo):
             col_a = nro_kit
             kit_prev = (o["occ"], kit)
 
-        articulo = f"{o['material']} {kit or ''} {o['parte']}".strip()
-        exp = export.get((kit, norm_parte(o["parte"])), {})
-        if not exp:
-            avisos.append(f"{articulo}: sin coincidencia en Exportaciones (NCM/Marca/V.Insumo en blanco).")
+        codigo = o["material"]
+        articulo = f"{codigo} {kit or ''} {o['parte']}".strip()
 
         # Factura: renglones del material (en orden) hasta cubrir la cantidad de Orígenes.
         # Si el código no figura, se busca un renglón libre con la misma parte y cantidad.
@@ -419,10 +448,13 @@ def armar_lote(origenes, kits, factura, export, djo):
         libres = [r for r in factura if not r["usado"] and r["codigo"] == o["material"]]
         if not libres and not any(r["codigo"] == o["material"] for r in factura):
             libres = [r for r in factura if not r["usado"] and r["parte"] == norm_parte(o["parte"])
-                      and objetivo is not None and r["qt"] is not None and abs(r["qt"] - objetivo) < 1e-6]
+                      and objetivo is not None and r["resto"] is not None and abs(r["resto"] - objetivo) < 1e-6]
             if libres:
-                avisos.append(f"{articulo}: el código no figura en la Factura; se tomó el renglón "
-                              f"{libres[0]['codigo']} (misma parte y cantidad). Verificar.")
+                # Código distinto entre Orígenes y Factura: se usa el material de la Factura
+                codigo = libres[0]["codigo"]
+                avisos.append(f"{articulo}: el código no figura en la Factura; se usó el material "
+                              f"{codigo} de la Factura (misma parte y cantidad). Verificar.")
+                articulo = f"{codigo} {kit or ''} {o['parte']}".strip()
         if libres:
             acum = 0.0
             for r in libres:
@@ -446,6 +478,10 @@ def armar_lote(origenes, kits, factura, export, djo):
         else:
             avisos.append(f"{articulo}: no encontrado en la Factura Final.")
 
+        exp = export.get((kit, norm_parte(o["parte"])), {})
+        if not exp:
+            avisos.append(f"{articulo}: sin coincidencia en Exportaciones (NCM/Marca/V.Insumo en blanco).")
+
         origen_n = norm_txt(o["origen"])
         pais = PAISES.get(origen_n)
         if pais is None:
@@ -454,7 +490,7 @@ def armar_lote(origenes, kits, factura, export, djo):
             avisos.append(f"{articulo}: país '{o['origen']}' no encontrado en la tabla.")
 
         valor = exp.get("valor")
-        dj = djo.get((o["material"], kit, norm_parte(o["parte"])), {})
+        dj = djo.get((codigo, kit, norm_parte(o["parte"]))) or djo.get((o["material"], kit, norm_parte(o["parte"])), {})
         peso = a_float(o["peso_total"])
 
         filas.append({
@@ -546,7 +582,7 @@ if st.button("Generar LOTE", type="primary", use_container_width=True, disabled=
             origenes = leer_origenes(f_orig.getvalue())
             kits = leer_picking(f_pick.getvalue())
             factura = leer_factura(f_fact.getvalue())
-            export = leer_exportaciones(f_expo.getvalue())
+            export = leer_exportaciones(desbloquear_excel(f_expo.getvalue(), clave_excel()))
             djo = leer_djo(f_djo.getvalue())
             filas, avisos, sobrantes = armar_lote(origenes, kits, factura, export, djo)
             st.session_state["lote_filas"] = filas
