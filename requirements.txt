@@ -16,3 +16,4 @@ extract-msg
 anthropic
 pymupdf
 beautifulsoup4
+msoffcrypto-tool
