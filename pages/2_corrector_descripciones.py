@@ -448,8 +448,15 @@ def segmentar_dp(texto):
                 dp[j] = dp[i] + [sub]
     return dp[n] if dp[n] is not None else [texto]
 
-PALABRAS_CLAVE = ["KIT", "CONJUNTO", "MANGUERA", "GRUPO", "JUEGO", "ELEMENTO", "MOTOR"]
-PALABRAS_CLAVE_FRASE = ["ELEMENTO FILTRANTE"]
+PALABRAS_CLAVE = ["KIT", "CONJUNTO", "MANGUERA", "GRUPO", "JUEGO", "ELEMENTO", "MOTOR",
+                  "CLAVIJA", "GENERALIDADES", "GENERAL", "USO"]
+PALABRAS_CLAVE_FRASE = ["ELEMENTO FILTRANTE", "USO EN"]
+
+ETIQUETA_UNA_PALABRA = "UNA SOLA PALABRA"
+
+def es_una_palabra(texto):
+    """True si la descripción final tiene una única palabra."""
+    return len(re.findall(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+", texto or "")) == 1
 
 CORRECCIONES_ORTOGRAFIA = {
     r'\bpasdor\b': 'pasador',
@@ -1051,6 +1058,11 @@ if archivo:
                 # Asegurar capitalización
                 if corregida:
                     corregida = corregida[0].upper() + corregida[1:]
+
+                # Alertar si la descripción final es una única palabra
+                if es_una_palabra(corregida):
+                    alerta = f"⚠️ {ETIQUETA_UNA_PALABRA}"
+                    keywords = f"{keywords} | {alerta}" if keywords else alerta
                 
                 resultados.append({"codigo": codigo, "original": desc_original, "errores": errores, "keywords": keywords, "corregida": corregida, "equipo": equipo})
                 icono = "⚠️" if keywords else ("✅" if errores == "Sin errores" else "✏️")
