@@ -448,8 +448,30 @@ def segmentar_dp(texto):
                 dp[j] = dp[i] + [sub]
     return dp[n] if dp[n] is not None else [texto]
 
-PALABRAS_CLAVE = ["KIT", "CONJUNTO", "MANGUERA", "GRUPO", "JUEGO", "ELEMENTO", "MOTOR",
-                  "CLAVIJA", "GENERALIDADES", "GENERAL", "USO"]
+# Raíces para detección con variantes morfológicas (singular/plural, con/sin acento)
+PALABRAS_CLAVE_RAIZ = [
+    r"KIT",
+    r"CONJUNT",        # conjunto, conjuntos
+    r"MANGUERA",       # manguera, mangueras
+    r"GRUPO",          # grupo, grupos
+    r"JUEGO",          # juego, juegos
+    r"ELEMENT",        # elemento, elementos
+    r"MOTOR",          # motor, motores
+    r"CLAVIJA",        # clavija, clavijas
+    r"GENERAL",        # general, generalidades, generalidad
+    r"USO",            # uso
+    r"CINTUR[OÓ]N",    # cinturón, cinturones
+    r"ASIENT",         # asiento, asientos
+    r"HERRAMIENTA",    # herramienta, herramientas
+    r"HERRAMENTAL",    # herramental
+    r"CENICERO",       # cenicero, ceniceros
+    r"MANO",           # mano, manos
+    r"EMBELLECEDOR",   # embellecedor, embellecedores
+    r"EMPAQUETADURA",  # empaquetadura, empaquetaduras
+    r"L[IÍ]QUIDO",     # líquido, liquido, líquidos
+    r"ACEITE",         # aceite, aceites
+    r"L[AÁ]MPAR",      # lámpara, lampara, lámparas, lamparita
+]
 PALABRAS_CLAVE_FRASE = ["ELEMENTO FILTRANTE", "USO EN"]
 
 ETIQUETA_UNA_PALABRA = "UNA SOLA PALABRA"
@@ -601,10 +623,11 @@ def limpiar_codigo_interno(texto):
 def detectar_palabras_clave(texto):
     texto_upper = texto.upper()
     encontradas = []
-    # Palabras simples
-    for p in PALABRAS_CLAVE:
-        if re.search(r'\b' + p + r'\b', texto_upper):
-            encontradas.append(p)
+    # Raíces morfológicas — detecta singular, plural y variantes con/sin acento
+    for raiz in PALABRAS_CLAVE_RAIZ:
+        m = re.search(r'\b' + raiz + r'\w*', texto_upper)
+        if m:
+            encontradas.append(m.group())
     # Frases de dos o más palabras (deben aparecer juntas)
     for frase in PALABRAS_CLAVE_FRASE:
         if frase in texto_upper:
