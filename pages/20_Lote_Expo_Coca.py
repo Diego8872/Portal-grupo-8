@@ -351,30 +351,53 @@ def leer_exportaciones(file_bytes):
     return idx
 
 
+def detectar_comprador(file_bytes):
+    """Cliente según el comprador de la Factura: MONRESA (Montevideo Refrescos SRL),
+    PARESA (Paraguay Refrescos S A) o None si no se reconoce."""
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    texto = norm_txt(" ".join(doc[i].get_text() for i in range(min(2, len(doc)))))
+    if "MONTEVIDEO REFRESCOS" in texto:
+        return "MONRESA"
+    if "PARAGUAY REFRESCOS" in texto:
+        return "PARESA"
+    return None
+
+
 def leer_djo(file_bytes):
+    """Devuelve {cliente: {(material, kit): {normas, nro, fecha}}}.
+    El cliente sale del nombre de la solapa (MONRESA / PARESA). Hay varias solapas por cliente;
+    si un material + kit está en más de una, se toma la de fecha más reciente."""
     wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
-    idx = {}
+    idx = {"MONRESA": {}, "PARESA": {}}
     for ws in wb.worksheets:
+        titulo = norm_txt(ws.title)
+        cliente = next((c for c in idx if c in titulo), None)
+        if cliente is None:
+            continue
         for r in ws.iter_rows(min_row=2, values_only=True):
             r = list(r) + [None] * 4
             txt = str(r[0] or "").replace("\xa0", " ")
-            m = re.match(r"\s*(\d{7})\s*/\s*(\d{7})\s*/?\s*(.+)", txt)
+            m = re.match(r"\s*(\d{7})\s*/\s*(\d{7})", txt)
             if not m:
                 continue
-            clave = (int(m.group(1)), int(m.group(2)), norm_parte(m.group(3)))
+            clave = (int(m.group(1)), int(m.group(2)))
             fecha = r[3] if isinstance(r[3], datetime) else None
             reg = {"normas": r[1], "nro": r[2], "fecha": fecha}
-            prev = idx.get(clave)
+            prev = idx[cliente].get(clave)
             if prev is None or (fecha and (prev["fecha"] is None or fecha > prev["fecha"])):
-                idx[clave] = reg
+                idx[cliente][clave] = reg
     return idx
 
 
 # =====================================================================
 # ARMADO DEL LOTE
 # =====================================================================
-def armar_lote(origenes, kits, factura, export, djo):
+def armar_lote(origenes, kits, factura, export, djo, cliente=None):
     avisos = []
+    djo_cliente = djo.get(cliente, {})
+    if cliente is None:
+        avisos.append("No se pudo identificar el comprador de la Factura (MONTEVIDEO REFRESCOS SRL / "
+                      "PARAGUAY REFRESCOS S A): Normas, Nro. DJO y Fecha quedan en blanco.")
 
     # 1) Resolver a qué kit del Picking (kit + Kit Quant) pertenece cada fila de Orígenes.
     #    Si el kit aparece más de una vez en el Picking, se decide por caja/bidón + lote;
@@ -490,7 +513,7 @@ def armar_lote(origenes, kits, factura, export, djo):
             avisos.append(f"{articulo}: país '{o['origen']}' no encontrado en la tabla.")
 
         valor = exp.get("valor")
-        dj = djo.get((codigo, kit, norm_parte(o["parte"]))) or djo.get((o["material"], kit, norm_parte(o["parte"])), {})
+        dj = djo_cliente.get((codigo, kit)) or djo_cliente.get((o["material"], kit)) or {}
         peso = a_float(o["peso_total"])
 
         filas.append({
@@ -584,7 +607,8 @@ if st.button("Generar LOTE", type="primary", use_container_width=True, disabled=
             factura = leer_factura(f_fact.getvalue())
             export = leer_exportaciones(desbloquear_excel(f_expo.getvalue(), clave_excel()))
             djo = leer_djo(f_djo.getvalue())
-            filas, avisos, sobrantes = armar_lote(origenes, kits, factura, export, djo)
+            cliente = detectar_comprador(f_fact.getvalue())
+            filas, avisos, sobrantes = armar_lote(origenes, kits, factura, export, djo, cliente)
             st.session_state["lote_filas"] = filas
             st.session_state["lote_avisos"] = avisos
             st.session_state["lote_sobrantes"] = sobrantes
