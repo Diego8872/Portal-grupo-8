@@ -18,7 +18,8 @@ COL_CE = 'D:LPCOVUCE0044'
 COL_ORDEN = 'I:NRO-ORDEN-LPCO'
 COL_OPC = 'I:MINERIAOPC'
 COL_MIN = 'V:MINERIA'
-COLS_NUEVAS = [COL_CE, COL_ORDEN, COL_OPC, COL_MIN]
+COL_TXT = 'I:LPCOVUCE0044TXT'
+COLS_NUEVAS = [COL_CE, COL_ORDEN, COL_OPC, COL_MIN, COL_TXT]
 COLS_REQUERIDAS = ['NumeroDeFactura', 'Observaciones', 'PosicionArancelaria',
                    'Cantidad', 'UnidadMedida', 'Descripcion']
 
@@ -439,7 +440,8 @@ def asignar_lineas(df, pares, ncm_map):
     or_col = [asign[i][1] if i in asign else '' for i in out.index]
     op_col = [min_opc.get(i, '') if i in asign else '' for i in out.index]
     mi_col = ['SI' if i in asign else '' for i in out.index]
-    for k, (nombre, valores) in enumerate(zip(COLS_NUEVAS, [ce_col, or_col, op_col, mi_col])):
+    tx_col = ['SI' if i in asign else '' for i in out.index]
+    for k, (nombre, valores) in enumerate(zip(COLS_NUEVAS, [ce_col, or_col, op_col, mi_col, tx_col])):
         out.insert(pos + k, nombre, valores)
     return out, control, avisos, alertas
 
