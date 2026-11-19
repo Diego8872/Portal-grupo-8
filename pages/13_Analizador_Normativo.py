@@ -24,15 +24,15 @@ from analyzer import (
 st.markdown("""
 <style>
 .norma-card {
-    background: rgba(255,255,255,0.07);
+    background: #123d4a;
     border-radius: 12px; padding: 1.5rem;
     border: 1px solid rgba(91,191,207,0.25);
     margin-bottom: 1rem; color: white;
 }
 .norma-card h3 { color: white; }
 .norma-card p  { color: rgba(255,255,255,0.75); }
-.chat-user { background: rgba(91,191,207,0.15); border-radius:10px; padding:0.8rem; margin:0.5rem 0; color: white; }
-.chat-ai   { background: rgba(255,255,255,0.07); border-radius:10px; padding:0.8rem; margin:0.5rem 0; border:1px solid rgba(91,191,207,0.2); color: white; }
+.chat-user { background: #1d5a6b; border-radius:10px; padding:0.8rem; margin:0.5rem 0; color: white; }
+.chat-ai   { background: #123d4a; border-radius:10px; padding:0.8rem; margin:0.5rem 0; border:1px solid rgba(91,191,207,0.2); color: white; }
 [data-testid="stToolbar"]   { visibility: hidden !important; }
 [data-testid="stDecoration"]{ display: none !important; }
 a[href*="github.com"]       { display: none !important; }
