@@ -221,7 +221,7 @@ projects = [
         "icon": "🧾",
         "name": "Corrector INAL Coca",
         "tag": "Auditoría",
-        "desc": "Control del PD de INAL (345, Autorización y Aviso) contra factura, BL/guía/CRT, COA, packing list y listado de importación. Genera un Excel con el resultado de cada campo.",
+        "desc": "Control del PD de INAL (345, Autorización y Aviso) contra factura, BL/CRT, COA y packing list. Genera un Excel con el resultado.",
         "page": "pages/21_Corrector_INAL_Coca.py"
     },
 ]
