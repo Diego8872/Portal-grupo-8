@@ -217,11 +217,16 @@ projects = [
         "desc": "Armado automático del LOTE de exportación Coca-Cola. Cruza Orígenes, Picking List, Factura, Exportaciones y DJO para completar NCM, valores, países y normas.",
         "page": "pages/20_Lote_Expo_Coca.py"
     },
+    {
+        "icon": "🧾",
+        "name": "Corrector INAL Coca",
+        "tag": "Auditoría",
+        "desc": "Control del PD de INAL (345, Autorización y Aviso) contra factura, BL/guía/CRT, COA, packing list y listado de importación. Genera un Excel con el resultado de cada campo.",
+        "page": "pages/21_Corrector_INAL_Coca.py"
+    },
 ]
 
-coming_soon = [
-    {"icon": "🍹", "name": "Corrector Inal Coca"},
-]
+coming_soon = []
 
 all_items = [("active", p) for p in projects] + [("soon", s) for s in coming_soon]
 
