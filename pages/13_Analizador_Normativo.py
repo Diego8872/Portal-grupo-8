@@ -55,6 +55,12 @@ def init_state():
 
 init_state()
 
+# Modo debug: agregar ?debug=1 a la URL para ver el expander de cobertura
+try:
+    MODO_DEBUG = str(st.query_params.get("debug", "")).lower() in ("1", "true", "si")
+except Exception:
+    MODO_DEBUG = False
+
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚖️ Normativa AR")
@@ -368,8 +374,9 @@ else:
         with st.expander("Ver texto completo de la norma"):
             st.text(texto[:6000] + ("..." if len(texto) > 6000 else ""))
 
+        # Debug de cobertura — solo visible con ?debug=1 en la URL
         debug = analisis.get("_debug", {})
-        if debug:
+        if MODO_DEBUG and debug:
             with st.expander("🔧 Debug — cobertura enviada al modelo"):
                 st.json(debug)
 
