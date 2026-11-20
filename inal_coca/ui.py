@@ -14,10 +14,10 @@ _ICONO = {OK: "✅", ERROR: "❌", "revisar": "⚠️"}
 # (clave, etiqueta, extensiones, obligatorio, varios archivos)
 _CAMPOS = [("pd", "PD (PDF)", ["pdf"], True, False),
            ("listado", "Listado de importación (Excel)", ["xlsx", "xlsm"], True, False),
-           ("factura", "Factura (PDF)", ["pdf"], False, False),
-           ("transporte", "BL / Guía aérea / CRT (PDF)", ["pdf"], False, False),
-           ("coa", "COA (PDF; uno por lote)", ["pdf"], False, True),
-           ("packing", "Packing list / Delivery note (PDF)", ["pdf"], False, False)]
+           ("factura", "Factura (PDF o Excel)", ["pdf", "xlsx", "xlsm"], False, False),
+           ("transporte", "BL / Guía aérea / CRT (PDF o Excel)", ["pdf", "xlsx", "xlsm"], False, False),
+           ("coa", "COA (PDF o Excel; uno por lote)", ["pdf", "xlsx", "xlsm"], False, True),
+           ("packing", "Packing list / Delivery note (PDF o Excel)", ["pdf", "xlsx", "xlsm"], False, False)]
 
 
 def _api_key() -> str:
