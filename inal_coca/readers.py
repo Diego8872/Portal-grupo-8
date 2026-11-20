@@ -1,8 +1,11 @@
 """Lectura de PDFs: texto cuando hay, imágenes cuando el PDF es un escaneo (sin PyMuPDF/OCR externo)."""
+import datetime as _dt
+import io
 import re
 from dataclasses import dataclass, field
 
 import fitz  # PyMuPDF
+import openpyxl
 
 MAX_CHARS = 14000        # tope de texto enviado al modelo por documento
 MAX_PAGINAS_IMG = 4      # tope de páginas escaneadas enviadas como imagen
@@ -14,6 +17,7 @@ _RUIDO_COPIA = re.compile(r"\b(original|copia|copy|duplicado|triplicado|cedible|
 class Doc:
     pages: list = field(default_factory=list)   # texto por página
     scanned: bool = False
+    excel: bool = False
     images: list = field(default_factory=list)  # JPEG por página (solo si scanned)
 
     @property
@@ -22,7 +26,7 @@ class Doc:
 
     @property
     def metodo(self) -> str:
-        return "visión (escaneado)" if self.scanned else "texto"
+        return "visión (escaneado)" if self.scanned else ("Excel" if self.excel else "texto")
 
 
 def _limpiar(t: str, colapsar: bool = True) -> str:
@@ -70,6 +74,40 @@ def _sin_legales(pages: list) -> list:
     """Quita las páginas de condiciones generales (varias miles de caracteres sin datos), salvo que sean las únicas."""
     utiles = [p for p in pages if not _LEGAL.search(p[:300])]
     return utiles or pages
+
+
+def _celda(v) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, (_dt.datetime, _dt.date)):
+        return v.strftime("%d/%m/%Y")
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return re.sub(r"\s+", " ", str(v)).strip()
+
+
+def read_excel(data: bytes) -> Doc:
+    """Excel como texto: una hoja por 'página', una fila por línea, celdas separadas por 3 espacios."""
+    wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+    pages = []
+    for ws in wb.worksheets:
+        filas = []
+        for row in ws.iter_rows(values_only=True):
+            celdas = [c for c in (_celda(v) for v in row) if c]
+            if celdas:
+                filas.append("   ".join(celdas))
+        if filas:
+            pages.append(f"[Hoja: {ws.title}]\n" + "\n".join(filas))
+    return Doc(pages=pages, excel=True)
+
+
+def read_doc(data: bytes, posicional: bool = False) -> Doc:
+    """PDF o Excel (se distingue por el contenido, no por el nombre)."""
+    if data[:2] == b"PK":
+        return read_excel(data)
+    if data[:4] == b"\xd0\xcf\x11\xe0":
+        raise ValueError("Excel .xls antiguo: guardalo como .xlsx y volvé a subirlo")
+    return read_pdf(data, posicional)
 
 
 def read_pdf(data: bytes, posicional: bool = False) -> Doc:
