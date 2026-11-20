@@ -6,7 +6,7 @@ from .config import TIPOS
 from .extract import elegir_material, extraer
 from .listado import buscar_material, cargar_listado, prefijos_hs, sugerir_materiales
 from .pd_parser import parse_pd
-from .readers import read_pdf
+from .readers import read_doc
 
 _IDS = {"factura": ["invoice_number"], "transporte": ["transport_doc_number"], "coa": ["lot"], "packing": []}
 # campos "identificadores" que deben aparecer literalmente en el texto del documento (anti-alucinación)
@@ -19,7 +19,7 @@ def _no_aparecen(datos: dict, texto: str, claves: list) -> list:
 
 def _leer(clave: str, data: bytes, proveedor):
     """Lee y extrae un documento. Devuelve (datos, texto, método). Un fallo no frena el resto del control."""
-    doc = read_pdf(data, posicional=True)
+    doc = read_doc(data, posicional=True)
     datos = extraer(clave, doc, proveedor)
     if not doc.scanned:
         datos["_no_encontrado"] = _no_aparecen(datos, doc.text, _IDS[clave])
