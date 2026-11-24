@@ -40,7 +40,8 @@ def parse_numero(s) -> float | None:
         return None
     if isinstance(s, (int, float)):
         return float(s)
-    t = re.sub(r"[^\d.,-]", "", str(s))
+    t = re.sub(r"[,.]\s*[-–—]+(?=\s|$)", "", str(s).strip())   # "310,--" / "310.-" = 310 sin decimales
+    t = re.sub(r"[^\d.,-]", "", t)
     if not re.search(r"\d", t):
         return None
     if "." in t and "," in t:
@@ -152,8 +153,15 @@ def iso_pais(s) -> str | None:
 
 
 # ---------- comparadores: (pd, fuente) -> (estado, detalle) ----------
+_ARTICULOS = {"el", "la", "los", "las", "de", "del"}
+
+
+def _sin_articulos(s) -> str:
+    return " ".join(w for w in norm_texto(s).split() if w not in _ARTICULOS)
+
+
 def c_igual_texto(pd, src):
-    return (OK, "") if norm_texto(pd) == norm_texto(src) else (ERROR, f"PD: {pd} / dato esperado: {src}")
+    return (OK, "") if _sin_articulos(pd) == _sin_articulos(src) else (ERROR, f"PD: {pd} / dato esperado: {src}")
 
 
 def c_id(pd, src, nombre_doc):
