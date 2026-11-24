@@ -1,5 +1,6 @@
 """Interfaz Streamlit. La usan app.py (standalone) y la página del portal."""
 import os
+import re
 
 import pandas as pd
 import streamlit as st
@@ -58,13 +59,23 @@ def render():
     st.title("🧾 Corrector INAL – Coca-Cola")
     st.caption("Controla el PD de INAL contra factura, BL/guía/CRT, COA, packing list y listado de importación.")
 
-    tipo = st.radio("Tipo de control", list(TIPOS), horizontal=True,
+    n = st.session_state.setdefault("inal_n", 0)   # cambia con "Nuevo análisis" y reinicia todos los campos
+
+    def _nuevo():
+        st.session_state["inal_n"] += 1
+        st.session_state.pop("inal_res", None)
+        st.session_state.pop("inal_detenido", None)
+
+    st.button("🔄 Nuevo análisis", on_click=_nuevo, help="Borra los archivos, la referencia y el resultado")
+    tipo = st.radio("Tipo de control", list(TIPOS), horizontal=True, index=None, key=f"inal_tipo_{n}",
                     format_func=lambda k: TIPOS[k].nombre)
+    referencia = st.text_input("Número de referencia (será el nombre del Excel)", key=f"inal_ref_{n}",
+                               placeholder="Ej.: 25001234")
     archivos = {}
     c1, c2 = st.columns(2)
     for i, (clave, etiqueta, ext, _, varios) in enumerate(_CAMPOS):
         with (c1 if i % 2 == 0 else c2):
-            archivos[clave] = st.file_uploader(etiqueta, type=ext, key=f"inal_{clave}", accept_multiple_files=varios)
+            archivos[clave] = st.file_uploader(etiqueta, type=ext, key=f"inal_{clave}_{n}", accept_multiple_files=varios)
 
     _diagnostico()
     if not _api_key():
@@ -76,7 +87,15 @@ def render():
     elif faltan_opc:
         st.warning("No subiste: " + ", ".join(faltan_opc) + ". Los campos que dependen de esos documentos quedarán como ⚠️.")
 
-    if st.button("Validar", type="primary", disabled=bool(faltan_obl) or not _api_key()):
+    if tipo is None:
+        st.info("Elegí el tipo de control (345, Autorización o Aviso).")
+    b1, b2, _ = st.columns([1, 1, 4])
+    validar_click = b1.button("Validar", type="primary", disabled=bool(faltan_obl) or tipo is None or not _api_key())
+    detener_click = b2.button("⏹ Detener", help="Frena el control en curso")
+    if detener_click:
+        st.session_state.pop("inal_res", None)
+        st.warning("Validación detenida. Podés corregir los datos y volver a validar.")
+    if validar_click:
         datos = {}
         for c, f in archivos.items():
             if isinstance(f, list):
@@ -88,6 +107,7 @@ def render():
             with st.status("Controlando…", expanded=False) as estado:
                 res = validar(tipo, datos, proveedor, progreso=lambda msg: estado.update(label=msg))
                 estado.update(label="Listo", state="complete")
+            res["referencia"] = referencia.strip()
             st.session_state["inal_res"] = res
         except Exception as e:
             st.session_state.pop("inal_res", None)
@@ -108,8 +128,10 @@ def render():
     st.dataframe(pd.DataFrame([{"": _ICONO[f.estado], "Campo": f.campo, "PD": f.pd or "—",
                                 "Documento fuente": f.fuente or "—", "Resultado": texto_resultado(f)}
                                for f in filas]), hide_index=True, use_container_width=True)
+    ref = re.sub(r'[\\/:*?"<>|#\s]+', "_", res.get("referencia", "")).strip("._ ")
     nombre = (res["pd_numero"] or "PD").replace("#", "-")
-    st.download_button("⬇️ Descargar Excel", generar_excel(res), file_name=f"Control_{res['tipo'].replace(' ', '_')}_{nombre}.xlsx",
+    archivo = f"{ref}.xlsx" if ref else f"Control_{res['tipo'].replace(' ', '_')}_{nombre}.xlsx"
+    st.download_button("⬇️ Descargar Excel", generar_excel(res), file_name=archivo,
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with st.expander("Datos leídos de cada documento (para revisar)"):
         st.caption("Lectura: " + " · ".join(f"{k}: {v}" for k, v in res["lecturas"].items()))
